@@ -1,0 +1,1 @@
+docker save -o compute-engine-job-poc.tar compute-engine-job-poc

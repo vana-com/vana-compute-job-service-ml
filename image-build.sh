@@ -1,0 +1,1 @@
+docker build -t compute-engine-job-poc ..
