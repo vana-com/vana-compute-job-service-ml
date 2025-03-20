@@ -30,7 +30,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: generated-stats
-          path: "*.json"
+          path: "output/stats.json"
           retention-days: 7
       
       - name: Run image-export script
