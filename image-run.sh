@@ -1,1 +1,1 @@
-docker run --rm -v ./input:/mnt/input -v ./output:/mnt/output compute-engine-job-poc
+docker run --rm -v ./input:/mnt/input -v ./output:/mnt/output my-compute-job

@@ -1,1 +1,1 @@
-docker save -o compute-engine-job-poc.tar compute-engine-job-poc
+docker save -o my-compute-job.tar my-compute-job
