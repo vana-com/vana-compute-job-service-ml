@@ -4,9 +4,9 @@ This project serves as PoC simulation of a Compute Engine job made by DLP owners
 
 ## Overview
 
-The worker leverages the test sqlite DB mounted to `/mnt/input/data.db` (overridable via `INPUT_PATH` env variable) following an unwrapped schema used for demoing the query engine in the hope of an eventual, consistent E2E workflow.
+The worker leverages the test sqlite DB mounted to `/mnt/input/query_results.db` (dir overridable via `INPUT_PATH` env variable) following an unwrapped schema used for demoing the query engine in the hope of an eventual, consistent E2E workflow.
 
-It processes the input data and outputs a `stats.json` under `/mnt/output/stats.json` (overridable via `OUTPUT_PATH` env variable).
+It processes the input data and outputs a `stats.json` under `/mnt/output/stats.json` (dir overridable via `OUTPUT_PATH` env variable).
 
 ## Utility scripts
 

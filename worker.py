@@ -1,10 +1,11 @@
+from pathlib import Path
 import sqlite3
 import json
 import os
 
 # Paths to the database and output file
-DB_PATH = os.getenv("INPUT_PATH", "/mnt/input/data.db")  # Default path to the SQLite database
-OUTPUT_PATH = os.getenv("OUTPUT_PATH", "/mnt/output/stats.json")  # Default output JSON path
+DB_PATH = Path(os.getenv("INPUT_PATH", "/mnt/input")) / "query_results.db"  # Default path to the SQLite database
+OUTPUT_PATH = Path(os.getenv("OUTPUT_PATH", "/mnt/output")) / "stats.json"  # Default output JSON path
 
 def aggregate_user_stats():
     """Connects to the SQLite DB and performs aggregation on user listening stats."""
