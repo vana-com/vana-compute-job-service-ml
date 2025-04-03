@@ -18,4 +18,4 @@ The `image-export.sh` script builds an exportable `.tar` for uploading in remote
 
 The file `dummy_data.sql` can be modified with the relevant schema and dummy data insertion. The query at the end of the script simulates the Query Engine `results` table creation.
 
-To transform this dummy data into the `query_results.db` SQLite DB simply run `sqlite3 ./output/query_results.db < dummy_data.sql`.
+To transform this dummy data into the `query_results.db` SQLite DB simply run `sqlite3 ./input/query_results.db < dummy_data.sql`.
