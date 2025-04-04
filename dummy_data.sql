@@ -1,31 +1,30 @@
 -- Create the tables
-CREATE TABLE unwrapped_user_stats (
-    user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    total_minutes INTEGER,
-    track_count INTEGER,
-    unique_artists TEXT,
-    activity_period_days INTEGER,
-    first_listen TEXT,
-    last_listen TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE users (
+    user_id VARCHAR NOT NULL,
+    email VARCHAR NOT NULL,
+    name VARCHAR NOT NULL,
+    locale VARCHAR NOT NULL,
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (user_id),
+    UNIQUE (email)
 );
 
 -- Insert dummy users
-INSERT INTO unwrapped_user_stats (user_id, total_minutes, track_count, unique_artists, activity_period_days, first_listen, last_listen) VALUES
-(1, 100, 50, 'Artist1, Artist2', 30, '2023-01-15 10:30:00', '2023-02-20 14:45:00'),
-(2, 150, 75, 'Artist3, Artist4', 45, '2023-02-20 14:45:00', '2023-03-10 08:15:00'),
-(3, 200, 100, 'Artist5, Artist6', 60, '2023-03-10 08:15:00', '2023-04-05 16:20:00'),
-(4, 250, 125, 'Artist7, Artist8', 75, '2023-04-05 16:20:00', '2023-05-12 11:10:00'),
-(5, 300, 150, 'Artist9, Artist10', 90, '2023-05-12 11:10:00', '2023-06-18 09:30:00'),
-(6, 350, 175, 'Artist11, Artist12', 105, '2023-06-18 09:30:00', '2023-07-22 15:40:00'),
-(7, 400, 200, 'Artist13, Artist14', 120, '2023-07-22 15:40:00', '2023-08-30 13:25:00'),
-(8, 450, 225, 'Artist15, Artist16', 135, '2023-08-30 13:25:00', '2023-09-05 17:50:00'),
-(9, 500, 250, 'Artist17, Artist18', 150, '2023-09-05 17:50:00', '2023-10-11 12:15:00'),
-(10, 550, 275, 'Artist19, Artist20', 165, '2023-10-11 12:15:00', '2023-11-19 10:05:00');
+INSERT INTO users (user_id, email, name, locale, created_at) VALUES
+('u001', 'alice@example.com', 'Alice Smith', 'en_US', '2024-04-01 09:00:00'),
+('u002', 'bob@example.com', 'Bob Johnson', 'en_GB', '2024-04-01 10:15:00'),
+('u003', 'carol@example.com', 'Carol Lee', 'fr_FR', '2024-04-01 11:30:00'),
+('u004', 'dave@example.com', 'Dave Kim', 'de_DE', '2024-04-01 12:45:00'),
+('u005', 'eve@example.com', 'Eve Torres', 'es_ES', '2024-04-01 13:00:00'),
+('u006', 'frank@example.com', 'Frank Wu', 'it_IT', '2024-04-01 14:20:00'),
+('u007', 'grace@example.com', 'Grace Hall', 'pt_BR', '2024-04-01 15:35:00'),
+('u008', 'heidi@example.com', 'Heidi Müller', 'nl_NL', '2024-04-01 16:50:00'),
+('u009', 'ivan@example.com', 'Ivan Petrov', 'ru_RU', '2024-04-01 17:10:00'),
+('u010', 'judy@example.com', 'Judy Alvarez', 'ja_JP', '2024-04-01 18:25:00');
 
 -- Create the results table to store the query result
 CREATE TABLE results AS
 SELECT
-    u.user_id,
-    u.total_minutes
-FROM unwrapped_user_stats AS u; 
+    user_id,
+    locale
+FROM users; 
