@@ -1,4 +1,4 @@
--- Create the tables
+-- Create the tables in accordance to the relevant Data Refiner schema
 CREATE TABLE users (
     user_id VARCHAR NOT NULL,
     email VARCHAR NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE users (
     UNIQUE (email)
 );
 
--- Insert dummy users
+-- Seed dummy data representing ingested, refined Query Engine data points
 INSERT INTO users (user_id, email, name, locale, created_at) VALUES
 ('u001', 'alice@example.com', 'Alice Smith', 'en_US', '2024-04-01 09:00:00'),
 ('u002', 'bob@example.com', 'Bob Johnson', 'en_GB', '2024-04-01 10:15:00'),
@@ -22,7 +22,8 @@ INSERT INTO users (user_id, email, name, locale, created_at) VALUES
 ('u009', 'ivan@example.com', 'Ivan Petrov', 'ru_RU', '2024-04-01 17:10:00'),
 ('u010', 'judy@example.com', 'Judy Alvarez', 'ja_JP', '2024-04-01 18:25:00');
 
--- Create the results table to store the query result
+-- Create the `results` table to simulate Query Engine query processing results.
+-- (The SELECT query is what would be submitted to the Compute Engine with the job.)
 CREATE TABLE results AS
 SELECT
     user_id,
