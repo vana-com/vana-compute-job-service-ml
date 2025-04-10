@@ -4,7 +4,7 @@ This project serves as proof-of-concept implementation of a Compute Engine job f
 
 ## Overview
 
-The worker leverages the test sqlite DB mounted to `/mnt/input/query_results.db` (dir overridable via `INPUT_PATH` env variable) following an unwrapped schema used for demoing the query engine in the hope of an eventual, consistent E2E workflow.
+The worker leverages the test sqlite DB mounted to `/mnt/input/query_results.db` (dir overridable via `INPUT_PATH` env variable) following the [demo application's](https://github.com/vana-com/data-access-demo) schema.
 
 It processes the input data and outputs a `stats.json` under `/mnt/output/stats.json` (dir overridable via `OUTPUT_PATH` env variable).
 
