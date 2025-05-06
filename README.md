@@ -1,75 +1,160 @@
-# Compute Engine Job Template
+# Vana Inference Engine
 
-This project serves as proof-of-concept implementation of a Compute Engine job for application builders in Vana's Data Access architecture.
+A FastAPI-based inference/training engine for Vana using Poetry and Unsloth.
 
 ## Overview
 
-The worker leverages the test sqlite DB mounted to `/mnt/input/query_results.db` (dir overridable via `INPUT_PATH` env variable) following the [demo application's](https://github.com/vana-com/data-access-demo) schema.
+This project implements a long-running compute service for training and inference of language models. It provides two main endpoints:
 
-It processes the input data and outputs a `stats.json` under `/mnt/output/stats.json` (dir overridable via `OUTPUT_PATH` env variable).
+1. `/train` - For training and fine-tuning language models using query results
+2. `/inference` - For generating text using fine-tuned models
+
+The application is designed to run as a long-running service inside a TEE (Trusted Execution Environment) and communicate with the Compute Engine via HTTP.
+
+## Features
+
+- **Query-Based Training**: Train models using the results of specific queries
+- **FastAPI Backend**: Provides a robust API for training and inference
+- **Unsloth Integration**: Efficient fine-tuning of language models
+- **Poetry Dependency Management**: Clean and reproducible dependency management
+- **Background Training Jobs**: Long-running training jobs that don't block the API
+- **Streaming Inference**: Support for streaming text generation responses
+- **Model Management**: List and manage fine-tuned models
+
+## Directory Structure
+
+```
+app/                    # Application code
+├── config.py           # Application configuration
+├── main.py             # FastAPI application entry point
+├── models/             # ML model implementations
+│   ├── inference.py    # Text generation using fine-tuned models
+│   └── trainer.py      # Model training using Unsloth
+├── routers/            # API route definitions
+│   ├── inference.py    # Inference API endpoints
+│   └── training.py     # Training API endpoints
+└── utils/              # Utility functions
+    └── db.py           # Database operations
+```
+
+## Data Flow
+
+1. The application receives a training request with query parameters or a query ID
+2. If query parameters are provided, the application would submit the query to the Query Engine (simulated in this implementation)
+3. Input data is provided from the compute engine through a mounted `/mnt/input` directory containing query results
+4. The application processes this data for training or uses it for inference
+5. Output models and artifacts are saved to the `/mnt/output` directory
+6. Working files and model caches are stored in the `/mnt/working` directory
 
 ## Quick Start
 
-1. Edit the `dummy_data.sql` script with the DLP data refiner schema, seed some dummy data, and add your query at the bottom to simulate the `results` table creation.
-2. Run `sqlite3 ./input/query_results.db < dummy_data.sql` to transform the seed data into an SQLite database that can be processed by the job.
-3. Update the `worker.py` to add any processing logic for artifact generation.
-4. Have the worker output any artifacts your application needs in the output dir `os.getenv("OUTPUT_PATH", "/mnt/output")`.
-5. Run the `image-build.sh` and `image-run.sh` scripts to test your worker implementation.
-6. Run the `image-export.sh` script to generate the `my-compute-job.tar` archive. Gzip this manually or push your changes to main to build a release (with SHA256 checksum).
+1. Build the Docker image:
+   ```bash
+   ./image-build.sh
+   ```
 
-## Utility scripts
+2. Run the container:
+   ```bash
+   ./image-run.sh
+   ```
 
-These are sugar scripts for docker commands to build, export, and run the worker image consistently for simpler dev cycles / iteration.
+3. Access the API at http://localhost:8000
 
-The `image-export.sh` script builds an exportable `.tar` for uploading in remote services for registering with the compute engine / image registry contracts.
+4. Export the Docker image for deployment:
+   ```bash
+   ./image-export.sh
+   ```
 
-## Generating test data
+## API Endpoints
 
-The script `dummy_data.sql` can be modified with the relevant schema and dummy data insertion. The query at the bottom of the script file simulates the Query Engine `results` table creation when processing queries.
+### Training
 
-To transform this dummy data into the input `query_results.db` SQLite DB simply run `sqlite3 ./input/query_results.db < dummy_data.sql`.
+- `POST /train`: Start a training job using query results
+  ```json
+  {
+    "model_name": "meta-llama/Llama-2-7b-hf",
+    "output_dir": "my_finetuned_model",
+    "training_params": {
+      "num_epochs": 3,
+      "learning_rate": 2e-4,
+      "batch_size": 4
+    },
+    "query_params": {
+      "query": "SELECT * FROM tweets WHERE user_id = ? ORDER BY created_at DESC LIMIT 100",
+      "params": ["user123"],
+      "refiner_id": 12
+    }
+  }
+  ```
 
-*Note:* Only the `results` table will be available in production compute engine jobs. The other tables serve to seed dummy data.
+- `GET /train/{job_id}`: Get the status of a training job
 
-## Building a Compute Job
+### Inference
 
-- Compute Jobs are run as Docker containers inside of the Compute Engine TEE.
-- Docker container images ("Compute Instructions") must be approved for a given Data Refiner id by DLP owners through the Compute Instruction Registry smart contract before being submitted for processing via the Compute Engine API.
-- The Data Refiner id determines the schema that can be queried against, the granted permissions by the DLP owner, and the cost to access each queried data component (schema, table, column) of the query when running compute jobs.
-- Individual queries to the Query Engine are run outside of the Compute Job by the Compute Engine directly before invoking the Compute Job.
-- Input data is provided from the compute engine to the compute job container through a mounted `/mnt/input` directory.
-  - This directory contains a single `query_results.db` SQLite file downloaded from the Query Engine after a query has been successfully processed.
-  - A queryable `results` table is the only table in the mounted `query_results.db`. This table contains all of the queried data points of the query submitted to the Query Engine through the Compute Engine API.
-  - *Example:*
-```sql
--- Refiner Schema:
-CREATE TABLE users (id AUTOINCREMENT, name TEXT, locale TEXT, zip_code TEXT, city TEXT);
+- `POST /inference`: Generate text using a fine-tuned model
+  ```json
+  {
+    "model_path": "my_finetuned_model",
+    "prompt": "What is machine learning?",
+    "max_new_tokens": 512,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "stream": false
+  }
+  ```
 
--- Application Builder Query:
-SELECT id, name, locale FROM users;
+- `GET /inference/models`: List all available fine-tuned models
 
--- Query Engine outputs `query_results.db` with schema
-CREATE TABLE results (id INTEGER, name TEXT, locale text);
+## Query-Based Training
 
--- Compute Job processing:
-SELECT id, name FROM results;
-SELECT locale FROM results;
-…
-```
-- Output data Artifacts are provided to the Compute Engine from the Compute Job container through a mounted `/mnt/output` directory.
-- Any Artifact files generated in this directory by the Compute Job will later be available for consumption and download by the job owner (=application builder) through the Compute Engine API.
+The training process uses the results of queries to the Query Engine:
 
-### Example Job Query Result Processing Workflow
+1. **Query Specification**: You can specify a query in two ways:
+   - Provide a `query_id` for an existing query
+   - Provide `query_params` to execute a new query
 
-1. Query data from `results` table of `/mnt/input/query_results.db` with SQLite.
-2. Run custom logic to process (transform / aggregate / …) query results.
-Write generated Artifacts to the `/mnt/output` directory for later download by the application builder / job owner wallet through the Compute Engine API.
+2. **Query Parameters**:
+   - `query`: The SQL query to execute
+   - `params`: Parameters for the query
+   - `refiner_id`: ID of the data refiner
+   - `query_signature`: Signature for query authentication
 
-### Submitting Compute Instructions For DLP Approval
+3. **Data Processing**:
+   - The query results are stored in the input database
+   - The training process extracts and formats this data for fine-tuning
+   - The model is trained on the formatted examples
 
-1. Build and export the Compute Job Docker image to a `.tar`, and `gzip` to a `.tar.gz`.
-2. Upload it to a publicly accessible URL for later retrieval by the Compute Engine.
-3. Calculate the SHA256 checksum of the image archive file and document for use in on-chain registration. (*Example:* `sha256sum my-compute-job.tar.gz | cut -d' ' -f1`)
-4. Write the Compute Instruction on-chain to the ComputeInstructionRegistry smart contract via the `addComputeInstruction` function with both the publicly available image URL and the SHA256 image checksum.
-5. Notify the relevant DLP owner for Compute Instruction image audits and eventual approval with the DLP owner wallet through the `updateComputeInstruction` ComputeInstructionRegistry smart contract function.
-6. Approval can be checked and verified on-chain with the `isApproved` ComputeInstructionRegistry smart contract function.
+## Environment Variables
+
+- `INPUT_PATH`: Path to the input directory (default: `/mnt/input`)
+- `OUTPUT_PATH`: Path to the output directory (default: `/mnt/output`)
+- `WORKING_PATH`: Path to the working directory (default: `/mnt/working`)
+- `PORT`: Port to run the FastAPI server on (default: `8000`)
+
+## Deployment
+
+For deployment in a TEE environment, follow these steps:
+
+1. Build and export the Docker image:
+   ```bash
+   ./image-build.sh
+   ./image-export.sh
+   ```
+
+2. Compress the image:
+   ```bash
+   gzip vana-inference.tar
+   ```
+
+3. Calculate the SHA256 checksum:
+   ```bash
+   sha256sum vana-inference.tar.gz | cut -d' ' -f1
+   ```
+
+4. Upload the image to a publicly accessible URL
+
+5. Register the Compute Instruction on-chain with the image URL and SHA256 checksum
+
+6. Get approval from the DLP owner
+
+7. Register and submit the Compute Job for execution

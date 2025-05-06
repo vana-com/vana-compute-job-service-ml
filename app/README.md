@@ -1,0 +1,134 @@
+# Vana Inference Engine
+
+A FastAPI-based inference/training engine for Vana using Poetry and Unsloth.
+
+## Overview
+
+This application provides two main endpoints:
+
+1. `/train` - For training and fine-tuning language models using query results
+2. `/inference` - For generating text using fine-tuned models
+
+The application is designed to run as a long-running service inside a TEE (Trusted Execution Environment) and communicate with the Compute Engine via HTTP.
+
+## Architecture
+
+- **FastAPI**: Provides the web server and API endpoints
+- **Unsloth**: Efficient fine-tuning of language models
+- **Poetry**: Dependency management
+- **SQLite**: Access to query results from the input directory
+
+## Query-Based Training
+
+The training process uses the results of queries to the Query Engine:
+
+1. **Query Specification**: You can specify a query in two ways:
+   - Provide a `query_id` for an existing query
+   - Provide `query_params` to execute a new query
+
+2. **Query Parameters**:
+   - `query`: The SQL query to execute
+   - `params`: Parameters for the query
+   - `refiner_id`: ID of the data refiner
+   - `query_signature`: Signature for query authentication
+
+3. **Data Processing**:
+   - The query results are stored in the input database
+   - The training process extracts and formats this data for fine-tuning
+   - The model is trained on the formatted examples
+
+## API Endpoints
+
+### Training
+
+- `POST /train`: Start a training job
+  ```json
+  {
+    "model_name": "meta-llama/Llama-2-7b-hf",
+    "output_dir": "my_finetuned_model",
+    "training_params": {
+      "num_epochs": 3,
+      "learning_rate": 2e-4,
+      "batch_size": 4
+    },
+    "query_params": {
+      "query": "SELECT * FROM tweets WHERE user_id = ? ORDER BY created_at DESC LIMIT 100",
+      "params": ["user123"],
+      "refiner_id": 12
+    }
+  }
+  ```
+
+- `GET /train/{job_id}`: Get the status of a training job
+
+### Inference
+
+- `POST /inference`: Generate text using a fine-tuned model
+  ```json
+  {
+    "model_path": "my_finetuned_model",
+    "prompt": "What is machine learning?",
+    "max_new_tokens": 512,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "stream": false
+  }
+  ```
+
+- `GET /inference/models`: List all available fine-tuned models
+
+## Directory Structure
+
+```
+app/
+├── config.py           # Application configuration
+├── main.py             # FastAPI application entry point
+├── models/             # ML model implementations
+│   ├── inference.py    # Text generation using fine-tuned models
+│   └── trainer.py      # Model training using Unsloth
+├── routers/            # API route definitions
+│   ├── inference.py    # Inference API endpoints
+│   └── training.py     # Training API endpoints
+└── utils/              # Utility functions
+    └── db.py           # Database operations
+```
+
+## Data Flow
+
+1. The application receives a training request with query parameters or a query ID
+2. If query parameters are provided, the application would submit the query to the Query Engine (simulated in this implementation)
+3. Input data is provided from the compute engine through a mounted `/mnt/input` directory containing query results
+4. The application processes this data for training or uses it for inference
+5. Output models and artifacts are saved to the `/mnt/output` directory
+6. Working files and model caches are stored in the `/mnt/working` directory
+
+## Development
+
+This application is built with Poetry for dependency management. To set up the development environment:
+
+```bash
+# Install dependencies
+poetry install
+
+# Run the application
+poetry run python -m app.main
+```
+
+## Deployment
+
+The application is containerized using Docker and can be deployed as a long-running service in a TEE.
+
+```bash
+# Build the Docker image
+docker build -t vana-inference .
+
+# Run the container
+docker run -p 8000:8000 -v ./input:/mnt/input -v ./output:/mnt/output -v ./working:/mnt/working vana-inference
+```
+
+## Environment Variables
+
+- `INPUT_PATH`: Path to the input directory (default: `/mnt/input`)
+- `OUTPUT_PATH`: Path to the output directory (default: `/mnt/output`)
+- `WORKING_PATH`: Path to the working directory (default: `/mnt/working`)
+- `PORT`: Port to run the FastAPI server on (default: `8000`)

@@ -1,1 +1,2 @@
-docker build -t my-compute-job .
+#!/bin/bash
+docker build -t vana-inference .

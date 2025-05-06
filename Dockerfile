@@ -2,6 +2,40 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-COPY worker.py /app/worker.py
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-CMD ["python", "/app/worker.py"]
+# Install Poetry
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="/root/.local/bin:$PATH"
+
+# Copy poetry configuration
+COPY app/pyproject.toml app/poetry.lock* /app/
+
+# Configure poetry to not use a virtual environment
+RUN poetry config virtualenvs.create false
+
+# Install dependencies
+RUN poetry install --no-dev --no-interaction --no-ansi
+
+# Copy application code
+COPY app /app
+
+# Create directories for input, output, and working data
+RUN mkdir -p /mnt/input /mnt/output /mnt/working
+
+# Set environment variables
+ENV INPUT_PATH=/mnt/input
+ENV OUTPUT_PATH=/mnt/output
+ENV WORKING_PATH=/mnt/working
+ENV PORT=8000
+
+# Expose the port
+EXPOSE 8000
+
+# Run the application
+CMD ["python", "-m", "app.main"]

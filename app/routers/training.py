@@ -1,0 +1,150 @@
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, status
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any, Union
+import sqlite3
+import os
+from pathlib import Path
+import json
+
+from app.config import settings
+from app.models.trainer import train_model
+from app.utils.db import get_training_data
+
+router = APIRouter()
+
+class QueryParams(BaseModel):
+    """Parameters for a query to the database."""
+    query: str
+    params: Optional[List[Any]] = None
+    refiner_id: Optional[int] = None
+    query_signature: Optional[str] = None
+
+class TrainingRequest(BaseModel):
+    """Training request model."""
+    model_name: Optional[str] = settings.DEFAULT_BASE_MODEL
+    output_dir: Optional[str] = None
+    training_params: Optional[Dict[str, Any]] = None
+    query_id: Optional[str] = None  # ID of an existing query
+    query_params: Optional[QueryParams] = None  # Parameters for a new query
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model_name": "meta-llama/Llama-2-7b-hf",
+                "output_dir": "my_finetuned_model",
+                "training_params": {
+                    "num_epochs": 3,
+                    "learning_rate": 2e-4,
+                    "batch_size": 4
+                },
+                "query_params": {
+                    "query": "SELECT * FROM tweets WHERE user_id = ? ORDER BY created_at DESC LIMIT 100",
+                    "params": ["user123"],
+                    "refiner_id": 12
+                }
+            }
+        }
+
+class TrainingResponse(BaseModel):
+    """Training response model."""
+    job_id: str
+    status: str
+    message: str
+    query_id: Optional[str] = None
+
+@router.post("/", response_model=TrainingResponse, status_code=status.HTTP_202_ACCEPTED)
+async def train(
+    request: TrainingRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Start a training job to fine-tune a model using query results.
+    
+    This endpoint will:
+    1. Use the provided query_id or execute a new query with query_params
+    2. Extract training data from the query results in the input database
+    3. Fine-tune the specified model using Unsloth
+    4. Save the fine-tuned model to the output directory
+    
+    Either query_id or query_params must be provided to identify the data to use for training.
+    """
+    try:
+        # Validate that either query_id or query_params is provided
+        if not request.query_id and not request.query_params:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Either query_id or query_params must be provided"
+            )
+        
+        # Generate a unique job ID
+        job_id = f"train_{os.urandom(4).hex()}"
+        
+        # Set output directory
+        output_dir = request.output_dir or f"model_{job_id}"
+        full_output_path = settings.OUTPUT_DIR / output_dir
+        
+        # Merge default and custom training parameters
+        training_params = {
+            "num_epochs": settings.NUM_EPOCHS,
+            "learning_rate": settings.LEARNING_RATE,
+            "batch_size": settings.BATCH_SIZE,
+            "max_seq_length": settings.MAX_SEQ_LENGTH
+        }
+        if request.training_params:
+            training_params.update(request.training_params)
+        
+        # Determine query information
+        query_info = None
+        if request.query_id:
+            query_info = {"query_id": request.query_id}
+        elif request.query_params:
+            query_info = {
+                "query": request.query_params.query,
+                "params": request.query_params.params or [],
+                "refiner_id": request.query_params.refiner_id,
+                "query_signature": request.query_params.query_signature
+            }
+        
+        # Start training in background
+        background_tasks.add_task(
+            train_model,
+            job_id=job_id,
+            model_name=request.model_name,
+            output_dir=full_output_path,
+            training_params=training_params,
+            query_info=query_info
+        )
+        
+        return TrainingResponse(
+            job_id=job_id,
+            status="started",
+            message=f"Training job started. Model will be saved to {output_dir}",
+            query_id=request.query_id
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start training job: {str(e)}"
+        )
+
+@router.get("/{job_id}", response_model=Dict[str, Any])
+async def get_training_status(job_id: str):
+    """Get the status of a training job."""
+    status_file = settings.WORKING_DIR / f"{job_id}_status.json"
+    
+    if not status_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Training job {job_id} not found"
+        )
+    
+    try:
+        with open(status_file, "r") as f:
+            status_data = json.load(f)
+        return status_data
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get training status: {str(e)}"
+        )
