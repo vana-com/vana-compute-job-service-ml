@@ -17,6 +17,7 @@ The application is designed to run as a long-running service inside a TEE (Trust
 - **Unsloth**: Efficient fine-tuning of language models
 - **Poetry**: Dependency management
 - **SQLite**: Access to query results from the input directory
+- **Server-Sent Events (SSE)**: Real-time training progress updates
 
 ## Query-Based Training
 
@@ -36,6 +37,22 @@ The training process uses the results of queries to the Query Engine:
    - The query results are stored in the input database
    - The training process extracts and formats this data for fine-tuning
    - The model is trained on the formatted examples
+
+## Real-time Training Progress
+
+The application provides real-time updates on training progress using Server-Sent Events (SSE):
+
+1. **Event Types**:
+   - `init`: Initial event with job information
+   - `status`: Status updates during different phases of training
+   - `progress`: Regular progress updates during training
+   - `log`: Log messages from the training process
+   - `complete`: Sent when training is complete
+   - `error`: Sent if an error occurs during training
+
+2. **Monitoring Progress**:
+   - Connect to `/train/{job_id}/events` to receive real-time updates
+   - Use `/train/{job_id}/events/history` to get all past events
 
 ## API Endpoints
 
@@ -60,6 +77,10 @@ The training process uses the results of queries to the Query Engine:
   ```
 
 - `GET /train/{job_id}`: Get the status of a training job
+
+- `GET /train/{job_id}/events`: Stream training events in real-time using SSE
+
+- `GET /train/{job_id}/events/history`: Get the history of training events
 
 ### Inference
 
@@ -90,7 +111,8 @@ app/
 │   ├── inference.py    # Inference API endpoints
 │   └── training.py     # Training API endpoints
 └── utils/              # Utility functions
-    └── db.py           # Database operations
+    ├── db.py           # Database operations
+    └── events.py       # Event handling for SSE
 ```
 
 ## Data Flow
@@ -101,6 +123,36 @@ app/
 4. The application processes this data for training or uses it for inference
 5. Output models and artifacts are saved to the `/mnt/output` directory
 6. Working files and model caches are stored in the `/mnt/working` directory
+
+## Client Example for SSE
+
+Here's an example of how to connect to the SSE endpoint from a web client:
+
+```javascript
+const eventSource = new EventSource('/train/train_1234abcd/events');
+
+eventSource.addEventListener('progress', (event) => {
+  const data = JSON.parse(event.data);
+  console.log(`Progress: ${data.progress}%, Step: ${data.step}/${data.total_steps}`);
+  updateProgressBar(data.progress);
+});
+
+eventSource.addEventListener('status', (event) => {
+  const data = JSON.parse(event.data);
+  console.log(`Status: ${data.status} - ${data.message}`);
+  updateStatus(data.status, data.message);
+});
+
+eventSource.addEventListener('complete', (event) => {
+  console.log('Training completed!');
+  eventSource.close();
+});
+
+eventSource.addEventListener('error', (event) => {
+  console.error('Training error:', event.data);
+  eventSource.close();
+});
+```
 
 ## Development
 

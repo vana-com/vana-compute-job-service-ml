@@ -1,14 +1,17 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, status, Request
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, AsyncGenerator
 import sqlite3
 import os
+import asyncio
 from pathlib import Path
 import json
 
 from app.config import settings
 from app.models.trainer import train_model
 from app.utils.db import get_training_data
+from app.utils.events import subscribe_to_training_events, format_sse_event, get_training_events
 
 router = APIRouter()
 
@@ -67,6 +70,8 @@ async def train(
     4. Save the fine-tuned model to the output directory
     
     Either query_id or query_params must be provided to identify the data to use for training.
+    
+    Training progress can be monitored in real-time by connecting to the /train/{job_id}/events endpoint.
     """
     try:
         # Validate that either query_id or query_params is provided
@@ -118,7 +123,7 @@ async def train(
         return TrainingResponse(
             job_id=job_id,
             status="started",
-            message=f"Training job started. Model will be saved to {output_dir}",
+            message=f"Training job started. Model will be saved to {output_dir}. Connect to /train/{job_id}/events for real-time updates.",
             query_id=request.query_id
         )
         
@@ -148,3 +153,74 @@ async def get_training_status(job_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get training status: {str(e)}"
         )
+
+@router.get("/{job_id}/events")
+async def stream_training_events(job_id: str, request: Request):
+    """
+    Stream training events for a job using Server-Sent Events (SSE).
+    
+    This endpoint allows clients to receive real-time updates about the training process.
+    The connection remains open until the training is complete or an error occurs.
+    
+    Events include:
+    - progress: Updates on training progress
+    - log: Log messages from the training process
+    - complete: Sent when training is complete
+    - error: Sent if an error occurs during training
+    """
+    # Check if the job exists
+    status_file = settings.WORKING_DIR / f"{job_id}_status.json"
+    if not status_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Training job {job_id} not found"
+        )
+    
+    async def event_generator():
+        try:
+            # Send headers for SSE
+            yield "retry: 1000\n\n"
+            
+            # Stream events
+            async for event in subscribe_to_training_events(job_id):
+                yield format_sse_event(event)
+                
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+        except Exception as e:
+            # Send error event
+            error_event = {
+                "type": "error",
+                "data": {"message": f"Error streaming events: {str(e)}"}
+            }
+            yield format_sse_event(error_event)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable buffering in nginx
+        }
+    )
+
+@router.get("/{job_id}/events/history", response_model=List[Dict[str, Any]])
+async def get_training_event_history(job_id: str):
+    """
+    Get the history of training events for a job.
+    
+    This endpoint returns all events that have been emitted for the training job,
+    allowing clients to catch up on progress if they weren't connected from the start.
+    """
+    # Check if the job exists
+    status_file = settings.WORKING_DIR / f"{job_id}_status.json"
+    if not status_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Training job {job_id} not found"
+        )
+    
+    events = await get_training_events(job_id)
+    return events

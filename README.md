@@ -14,6 +14,7 @@ The application is designed to run as a long-running service inside a TEE (Trust
 ## Features
 
 - **Query-Based Training**: Train models using the results of specific queries
+- **Real-time Training Progress**: Monitor training progress in real-time using Server-Sent Events (SSE)
 - **FastAPI Backend**: Provides a robust API for training and inference
 - **Unsloth Integration**: Efficient fine-tuning of language models
 - **Poetry Dependency Management**: Clean and reproducible dependency management
@@ -34,7 +35,8 @@ app/                    # Application code
 │   ├── inference.py    # Inference API endpoints
 │   └── training.py     # Training API endpoints
 └── utils/              # Utility functions
-    └── db.py           # Database operations
+    ├── db.py           # Database operations
+    └── events.py       # Event handling for SSE
 ```
 
 ## Data Flow
@@ -89,6 +91,10 @@ app/                    # Application code
 
 - `GET /train/{job_id}`: Get the status of a training job
 
+- `GET /train/{job_id}/events`: Stream training events in real-time using SSE
+
+- `GET /train/{job_id}/events/history`: Get the history of training events
+
 ### Inference
 
 - `POST /inference`: Generate text using a fine-tuned model
@@ -123,6 +129,43 @@ The training process uses the results of queries to the Query Engine:
    - The query results are stored in the input database
    - The training process extracts and formats this data for fine-tuning
    - The model is trained on the formatted examples
+
+## Real-time Training Progress
+
+The application provides real-time updates on training progress using Server-Sent Events (SSE):
+
+1. **Event Types**:
+   - `init`: Initial event with job information
+   - `status`: Status updates during different phases of training
+   - `progress`: Regular progress updates during training
+   - `log`: Log messages from the training process
+   - `complete`: Sent when training is complete
+   - `error`: Sent if an error occurs during training
+
+2. **Monitoring Progress**:
+   - Connect to `/train/{job_id}/events` to receive real-time updates
+   - Use `/train/{job_id}/events/history` to get all past events
+
+3. **Client Example**:
+   ```javascript
+   const eventSource = new EventSource('/train/train_1234abcd/events');
+   
+   eventSource.addEventListener('progress', (event) => {
+     const data = JSON.parse(event.data);
+     console.log(`Progress: ${data.progress}%, Step: ${data.step}/${data.total_steps}`);
+     updateProgressBar(data.progress);
+   });
+   
+   eventSource.addEventListener('complete', (event) => {
+     console.log('Training completed!');
+     eventSource.close();
+   });
+   
+   eventSource.addEventListener('error', (event) => {
+     console.error('Training error:', event.data);
+     eventSource.close();
+   });
+   ```
 
 ## Environment Variables
 

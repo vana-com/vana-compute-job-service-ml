@@ -25,8 +25,8 @@ var/
 poetry.lock
 
 # Docker
-vana-inference.tar
-vana-inference.tar.gz
+my-compute-job.tar
+my-compute-job.tar.gz
 
 # Directories
 input/
