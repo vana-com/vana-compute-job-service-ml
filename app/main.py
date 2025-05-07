@@ -4,12 +4,13 @@ import torch
 import shutil
 import psutil
 from pathlib import Path
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status, Body
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Dict, Any, List
 
 from app.routers import training, inference
 from app.config import settings
-from app.utils.db import get_connection
+from app.utils.db import get_connection, execute_query, get_training_data
 from app.models.inference import load_model
 
 app = FastAPI(
@@ -30,6 +31,93 @@ app.add_middleware(
 # Include routers
 app.include_router(training.router, prefix="/train", tags=["training"])
 app.include_router(inference.router, prefix="/inference", tags=["inference"])
+
+
+@app.post("/test-query", tags=["query"])
+async def test_query(
+    query: str = Body(..., description="SQL query to execute"),
+    params: List[Any] = Body(None, description="Parameters for the query")
+):
+    """
+    Test endpoint to run a query against the database.
+    
+    This endpoint allows direct execution of SQL queries for testing purposes.
+    In production, this would be restricted to authorized users only.
+    
+    Args:
+        query: SQL query to execute
+        params: Parameters for the query (optional)
+        
+    Returns:
+        The query results
+    """
+    try:
+        results = execute_query(query, params)
+        
+        # Convert results to a more readable format
+        column_names = []
+        if results:
+            # Get column names from cursor description
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute(query, params if params else [])
+            column_names = [desc[0] for desc in cursor.description]
+            conn.close()
+        
+        formatted_results = []
+        for row in results:
+            formatted_row = {}
+            for i, value in enumerate(row):
+                column_name = column_names[i] if i < len(column_names) else f"column_{i}"
+                formatted_row[column_name] = value
+            formatted_results.append(formatted_row)
+        
+        return {
+            "status": "success",
+            "query": query,
+            "params": params,
+            "row_count": len(results),
+            "results": formatted_results
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Query execution failed: {str(e)}"
+        )
+
+@app.post("/test-query-engine", tags=["query"])
+async def test_query_engine(
+    query_info: Dict[str, Any] = Body(..., description="Query information for the query engine")
+):
+    """
+    Test endpoint to run a query through the query engine.
+    
+    This endpoint uses the query engine to process queries and return results.
+    It demonstrates how the query engine would be used in production.
+    
+    Args:
+        query_info: Dictionary containing query information. Can be:
+            - {"query_id": str} - ID of an existing query
+            - {"query": str, "params": List, "refiner_id": int, "query_signature": str} - Parameters for a new query
+            
+    Returns:
+        The query results from the query engine
+    """
+    try:
+        # Get data from the query engine
+        results = get_training_data(query_info)
+        
+        return {
+            "status": "success",
+            "query_info": query_info,
+            "row_count": len(results),
+            "results": results
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Query engine execution failed: {str(e)}"
+        )
 
 @app.get("/", tags=["health"])
 async def root():
