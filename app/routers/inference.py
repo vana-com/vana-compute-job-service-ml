@@ -1,105 +1,92 @@
-from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, HTTPException, status, Request, Depends
+from fastapi.responses import StreamingResponse, JSONResponse
+from typing import List, Optional, Dict, Any, Union
 import os
-from pathlib import Path
+import time
 import json
+import asyncio
+from pathlib import Path
+import uuid
 
 from app.config import settings
-from app.models.inference import generate_text, load_model
+from app.models.inference import generate_chat_completion
+from app.models.schemas import (
+    Message, 
+    ChatCompletionRequest, 
+    ChatCompletionResponse, 
+    ChatCompletionResponseChoice,
+    ChatCompletionResponseUsage,
+    ChatCompletionChunk,
+    ChatCompletionChunkChoice
+)
 
 router = APIRouter()
 
-class InferenceRequest(BaseModel):
-    """Inference request model."""
-    model_path: str
-    prompt: str
-    max_new_tokens: Optional[int] = settings.MAX_NEW_TOKENS
-    temperature: Optional[float] = settings.TEMPERATURE
-    top_p: Optional[float] = settings.TOP_P
-    stream: Optional[bool] = False
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "model_path": "my_finetuned_model",
-                "prompt": "What is machine learning?",
-                "max_new_tokens": 512,
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "stream": False
-            }
-        }
-
-class InferenceResponse(BaseModel):
-    """Inference response model."""
-    text: str
-    model_path: str
-    generation_time: float
-
-@router.post("/", response_model=InferenceResponse)
-async def inference(request: InferenceRequest):
+@router.post("/chat/completions", response_model=Union[ChatCompletionResponse, StreamingResponse])
+async def create_chat_completion(request: ChatCompletionRequest):
     """
-    Generate text using a fine-tuned model.
+    Create a chat completion following the OpenAI API specification.
     
-    This endpoint will:
-    1. Load the specified model
-    2. Generate text based on the provided prompt
-    3. Return the generated text
+    This endpoint mimics the behavior of OpenAI's /v1/chat/completions endpoint.
     """
     try:
         # Check if model exists
-        model_path = settings.OUTPUT_DIR / request.model_path
+        model_path = settings.OUTPUT_DIR / request.model
         if not model_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Model not found at {request.model_path}"
+                detail=f"Model not found: {request.model}"
             )
+        
+        # Generate a unique ID for this completion
+        completion_id = f"chatcmpl-{uuid.uuid4().hex}"
+        created_timestamp = int(time.time())
         
         # If streaming is requested, use streaming response
         if request.stream:
             return StreamingResponse(
-                generate_text(
+                generate_chat_completion(
                     model_path=model_path,
-                    prompt=request.prompt,
-                    max_new_tokens=request.max_new_tokens,
+                    messages=request.messages,
                     temperature=request.temperature,
                     top_p=request.top_p,
-                    stream=True
+                    max_tokens=request.max_tokens,
+                    stop=request.stop,
+                    stream=True,
+                    completion_id=completion_id,
+                    created=created_timestamp
                 ),
                 media_type="text/event-stream"
             )
         
         # Otherwise, generate text and return as JSON
-        result = generate_text(
+        result = await generate_chat_completion(
             model_path=model_path,
-            prompt=request.prompt,
-            max_new_tokens=request.max_new_tokens,
+            messages=request.messages,
             temperature=request.temperature,
             top_p=request.top_p,
-            stream=False
+            max_tokens=request.max_tokens,
+            stop=request.stop,
+            stream=False,
+            completion_id=completion_id,
+            created=created_timestamp
         )
         
-        return InferenceResponse(
-            text=result["text"],
-            model_path=str(model_path),
-            generation_time=result["generation_time"]
-        )
+        return result
         
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Inference failed: {str(e)}"
+            detail=f"Chat completion failed: {str(e)}"
         )
 
-@router.get("/models", response_model=List[Dict[str, Any]])
+@router.get("/models", response_model=Dict[str, Any])
 async def list_models():
-    """List all available fine-tuned models."""
+    """List all available models in OpenAI format."""
     try:
-        models = []
+        models_data = []
         for model_dir in settings.OUTPUT_DIR.glob("*"):
             if model_dir.is_dir() and (model_dir / "config.json").exists():
                 # Get model metadata if available
@@ -109,15 +96,21 @@ async def list_models():
                     with open(metadata_file, "r") as f:
                         metadata = json.load(f)
                 
-                models.append({
-                    "name": model_dir.name,
-                    "path": str(model_dir),
-                    "created_at": metadata.get("created_at", "unknown"),
-                    "base_model": metadata.get("base_model", "unknown"),
-                    "metadata": metadata
+                # Format in OpenAI style
+                models_data.append({
+                    "id": model_dir.name,
+                    "object": "model",
+                    "created": int(time.mktime(time.strptime(metadata.get("created_at", "2023-01-01T00:00:00"), "%Y-%m-%dT%H:%M:%S.%f"))) if "created_at" in metadata else int(time.time()),
+                    "owned_by": "vana",
+                    "permission": [],
+                    "root": metadata.get("base_model", "unknown"),
+                    "parent": None
                 })
         
-        return models
+        return {
+            "object": "list",
+            "data": models_data
+        }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

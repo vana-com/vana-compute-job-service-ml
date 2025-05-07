@@ -1,8 +1,11 @@
 import time
-from pathlib import Path
-from typing import Dict, Any, Generator, Union
-import torch
 import json
+import asyncio
+from pathlib import Path
+from typing import Dict, Any, Generator, Union, List, Optional
+import torch
+import tiktoken
+from datetime import datetime
 
 # Import Unsloth for efficient inference
 from unsloth import FastLanguageModel
@@ -10,9 +13,19 @@ from transformers import TextIteratorStreamer
 from threading import Thread
 
 from app.config import settings
+from app.models.schemas import (
+    Message, 
+    ChatCompletionResponse, 
+    ChatCompletionResponseChoice, 
+    ChatCompletionResponseUsage, 
+    ChatCompletionChunk, 
+    ChatCompletionChunkChoice
+)
 
 # Cache for loaded models to avoid reloading
 model_cache = {}
+# Cache for tokenizers to count tokens
+tokenizer_cache = {}
 
 def load_model(model_path: Path):
     """
@@ -42,47 +55,132 @@ def load_model(model_path: Path):
     
     return model, tokenizer
 
-def generate_text(
+def count_tokens(text: str, model_name: str = "gpt-3.5-turbo") -> int:
+    """
+    Count the number of tokens in a text string.
+    
+    Args:
+        text: The text to count tokens for
+        model_name: The model to use for counting tokens
+        
+    Returns:
+        int: The number of tokens
+    """
+    if model_name not in tokenizer_cache:
+        try:
+            tokenizer_cache[model_name] = tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            # Fallback to cl100k_base encoding if model not found
+            tokenizer_cache[model_name] = tiktoken.get_encoding("cl100k_base")
+    
+    tokenizer = tokenizer_cache[model_name]
+    return len(tokenizer.encode(text))
+
+def format_prompt_from_messages(messages: List[Message]) -> str:
+    """
+    Format a prompt from a list of messages in the OpenAI format.
+    
+    Args:
+        messages: List of messages in the OpenAI format
+        
+    Returns:
+        str: Formatted prompt for the model
+    """
+    prompt = ""
+    
+    for message in messages:
+        if message.role == "system":
+            # Add system message at the beginning
+            prompt += f"<s>[INST] <<SYS>>\n{message.content}\n<</SYS>>\n\n"
+        elif message.role == "user":
+            # If we already have a system message, just add the user message
+            if prompt:
+                prompt += f"{message.content} [/INST]"
+            else:
+                # Otherwise, start a new instruction
+                prompt += f"<s>[INST] {message.content} [/INST]"
+        elif message.role == "assistant":
+            # Add assistant response
+            prompt += f" {message.content} </s>"
+            # Start a new instruction if there are more messages
+            if message != messages[-1]:
+                prompt += f"<s>[INST] "
+    
+    # If the last message is from the user, we need to close the instruction
+    if messages[-1].role == "user" and not prompt.endswith("[/INST]"):
+        prompt += " [/INST]"
+    
+    return prompt
+
+async def generate_chat_completion(
     model_path: Path,
-    prompt: str,
-    max_new_tokens: int = settings.MAX_NEW_TOKENS,
+    messages: List[Message],
     temperature: float = settings.TEMPERATURE,
     top_p: float = settings.TOP_P,
-    stream: bool = False
-) -> Union[Dict[str, Any], Generator[str, None, None]]:
+    max_tokens: int = settings.MAX_NEW_TOKENS,
+    stop: Optional[Union[str, List[str]]] = None,
+    stream: bool = False,
+    completion_id: str = None,
+    created: int = None
+) -> Union[ChatCompletionResponse, Generator[str, None, None]]:
     """
-    Generate text using the specified model.
+    Generate a chat completion following the OpenAI API specification.
     
     Args:
         model_path: Path to the model directory
-        prompt: Input prompt for text generation
-        max_new_tokens: Maximum number of tokens to generate
+        messages: List of messages in the OpenAI format
         temperature: Sampling temperature
         top_p: Top-p sampling parameter
+        max_tokens: Maximum number of tokens to generate
+        stop: Stop sequences
         stream: Whether to stream the output
+        completion_id: ID for the completion
+        created: Timestamp for the completion
         
     Returns:
-        If stream=False, returns a dictionary with the generated text and metadata.
-        If stream=True, returns a generator that yields chunks of text.
+        If stream=False, returns a ChatCompletionResponse.
+        If stream=True, returns a generator that yields SSE formatted chunks.
     """
     # Load model
     model, tokenizer = load_model(model_path)
     
-    # Format prompt if needed
-    if not prompt.startswith("<s>[INST]"):
-        prompt = f"<s>[INST] {prompt} [/INST]"
+    # Format prompt from messages
+    prompt = format_prompt_from_messages(messages)
     
     # Tokenize input
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     
+    # Count tokens
+    prompt_tokens = inputs.input_ids.shape[1]
+    
     # Set up generation config
     generation_config = {
-        "max_new_tokens": max_new_tokens,
+        "max_new_tokens": max_tokens,
         "temperature": temperature,
         "top_p": top_p,
         "do_sample": temperature > 0,
         "pad_token_id": tokenizer.eos_token_id,
     }
+    
+    # Add stop sequences if provided
+    if stop:
+        if isinstance(stop, str):
+            stop = [stop]
+        generation_config["stopping_criteria"] = [
+            lambda input_ids, scores: any(
+                tokenizer.decode(input_ids[0][-len(tokenizer.encode(s)):]) == s 
+                for s in stop
+            )
+        ]
+    
+    # Use current time if not provided
+    if created is None:
+        created = int(time.time())
+    
+    # Generate a unique ID if not provided
+    if completion_id is None:
+        import uuid
+        completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     
     # Handle streaming
     if stream:
@@ -99,10 +197,56 @@ def generate_text(
         )
         thread.start()
         
-        # Stream the output
-        def generate_stream():
+        # Stream the output in OpenAI format
+        async def generate_stream():
+            content_so_far = ""
+            
+            # Send the first chunk with role
+            first_chunk = ChatCompletionChunk(
+                id=completion_id,
+                created=created,
+                model=model_path.name,
+                choices=[
+                    ChatCompletionChunkChoice(
+                        index=0,
+                        delta={"role": "assistant"},
+                        finish_reason=None
+                    )
+                ]
+            )
+            yield f"data: {first_chunk.json()}\n\n"
+            
+            # Stream the content
             for text in streamer:
-                yield f"data: {json.dumps({'text': text})}\n\n"
+                content_so_far += text
+                chunk = ChatCompletionChunk(
+                    id=completion_id,
+                    created=created,
+                    model=model_path.name,
+                    choices=[
+                        ChatCompletionChunkChoice(
+                            index=0,
+                            delta={"content": text},
+                            finish_reason=None
+                        )
+                    ]
+                )
+                yield f"data: {chunk.json()}\n\n"
+            
+            # Send the final chunk
+            final_chunk = ChatCompletionChunk(
+                id=completion_id,
+                created=created,
+                model=model_path.name,
+                choices=[
+                    ChatCompletionChunkChoice(
+                        index=0,
+                        delta={},
+                        finish_reason="stop"
+                    )
+                ]
+            )
+            yield f"data: {final_chunk.json()}\n\n"
             yield "data: [DONE]\n\n"
         
         return generate_stream()
@@ -125,9 +269,30 @@ def generate_text(
     if generated_text.startswith(prompt_decoded):
         generated_text = generated_text[len(prompt_decoded):].strip()
     
-    generation_time = time.time() - start_time
+    # Count completion tokens
+    completion_tokens = count_tokens(generated_text)
+    total_tokens = prompt_tokens + completion_tokens
     
-    return {
-        "text": generated_text,
-        "generation_time": generation_time
-    }
+    # Create the response
+    response = ChatCompletionResponse(
+        id=completion_id,
+        created=created,
+        model=model_path.name,
+        choices=[
+            ChatCompletionResponseChoice(
+                index=0,
+                message=Message(
+                    role="assistant",
+                    content=generated_text
+                ),
+                finish_reason="stop"
+            )
+        ],
+        usage=ChatCompletionResponseUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens
+        )
+    )
+    
+    return response

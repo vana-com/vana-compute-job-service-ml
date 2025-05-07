@@ -7,7 +7,7 @@ A FastAPI-based inference/training engine for Vana using Poetry and Unsloth.
 This application provides two main endpoints:
 
 1. `/train` - For training and fine-tuning language models using query results
-2. `/inference` - For generating text using fine-tuned models
+2. `/chat/completions` - OpenAI-compatible API for chat completions
 
 The application is designed to run as a long-running service inside a TEE (Trusted Execution Environment) and communicate with the Compute Engine via HTTP.
 
@@ -18,6 +18,7 @@ The application is designed to run as a long-running service inside a TEE (Trust
 - **Poetry**: Dependency management
 - **SQLite**: Access to query results from the input directory
 - **Server-Sent Events (SSE)**: Real-time training progress updates
+- **OpenAI-Compatible API**: Drop-in replacement for OpenAI's chat completions API
 
 ## Query-Based Training
 
@@ -54,6 +55,82 @@ The application provides real-time updates on training progress using Server-Sen
    - Connect to `/train/{job_id}/events` to receive real-time updates
    - Use `/train/{job_id}/events/history` to get all past events
 
+## OpenAI-Compatible API
+
+The inference API is designed to be compatible with OpenAI's API, allowing you to use it as a drop-in replacement for applications built with the OpenAI SDK:
+
+### Endpoints
+
+- `POST /chat/completions`: Generate chat completions
+  ```json
+  {
+    "model": "my_finetuned_model",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "What is machine learning?"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 512,
+    "stream": false
+  }
+  ```
+
+- `GET /models`: List all available models
+
+### Python Example
+
+```python
+import openai
+
+# Configure the client to use your Vana Inference Engine
+client = openai.OpenAI(
+    base_url="http://localhost:8000",  # Your Vana Inference Engine URL
+    api_key="dummy-key"  # Not used but required by the client
+)
+
+# Use the same API as you would with OpenAI
+response = client.chat.completions.create(
+    model="my_finetuned_model",  # Your fine-tuned model name
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is machine learning?"}
+    ],
+    temperature=0.7,
+    max_tokens=512
+)
+
+print(response.choices[0].message.content)
+```
+
+### JavaScript Example
+
+```javascript
+import OpenAI from 'openai';
+
+// Configure the client to use your Vana Inference Engine
+const openai = new OpenAI({
+  baseURL: 'http://localhost:8000',  // Your Vana Inference Engine URL
+  apiKey: 'dummy-key'  // Not used but required by the client
+});
+
+// Use the same API as you would with OpenAI
+async function main() {
+  const response = await openai.chat.completions.create({
+    model: 'my_finetuned_model',  // Your fine-tuned model name
+    messages: [
+      { role: 'system', content: 'You are a helpful assistant.' },
+      { role: 'user', content: 'What is machine learning?' }
+    ],
+    temperature: 0.7,
+    max_tokens: 512
+  });
+
+  console.log(response.choices[0].message.content);
+}
+
+main();
+```
+
 ## API Endpoints
 
 ### Training
@@ -82,21 +159,23 @@ The application provides real-time updates on training progress using Server-Sen
 
 - `GET /train/{job_id}/events/history`: Get the history of training events
 
-### Inference
+### Inference (OpenAI-Compatible)
 
-- `POST /inference`: Generate text using a fine-tuned model
+- `POST /chat/completions`: Generate chat completions
   ```json
   {
-    "model_path": "my_finetuned_model",
-    "prompt": "What is machine learning?",
-    "max_new_tokens": 512,
+    "model": "my_finetuned_model",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "What is machine learning?"}
+    ],
     "temperature": 0.7,
-    "top_p": 0.9,
+    "max_tokens": 512,
     "stream": false
   }
   ```
 
-- `GET /inference/models`: List all available fine-tuned models
+- `GET /models`: List all available models
 
 ## Directory Structure
 
@@ -105,10 +184,10 @@ app/
 ├── config.py           # Application configuration
 ├── main.py             # FastAPI application entry point
 ├── models/             # ML model implementations
-│   ├── inference.py    # Text generation using fine-tuned models
+│   ├── inference.py    # Text generation using fine-tuned models (OpenAI-compatible)
 │   └── trainer.py      # Model training using Unsloth
 ├── routers/            # API route definitions
-│   ├── inference.py    # Inference API endpoints
+│   ├── inference.py    # Inference API endpoints (OpenAI-compatible)
 │   └── training.py     # Training API endpoints
 └── utils/              # Utility functions
     ├── db.py           # Database operations
@@ -123,36 +202,6 @@ app/
 4. The application processes this data for training or uses it for inference
 5. Output models and artifacts are saved to the `/mnt/output` directory
 6. Working files and model caches are stored in the `/mnt/working` directory
-
-## Client Example for SSE
-
-Here's an example of how to connect to the SSE endpoint from a web client:
-
-```javascript
-const eventSource = new EventSource('/train/train_1234abcd/events');
-
-eventSource.addEventListener('progress', (event) => {
-  const data = JSON.parse(event.data);
-  console.log(`Progress: ${data.progress}%, Step: ${data.step}/${data.total_steps}`);
-  updateProgressBar(data.progress);
-});
-
-eventSource.addEventListener('status', (event) => {
-  const data = JSON.parse(event.data);
-  console.log(`Status: ${data.status} - ${data.message}`);
-  updateStatus(data.status, data.message);
-});
-
-eventSource.addEventListener('complete', (event) => {
-  console.log('Training completed!');
-  eventSource.close();
-});
-
-eventSource.addEventListener('error', (event) => {
-  console.error('Training error:', event.data);
-  eventSource.close();
-});
-```
 
 ## Development
 

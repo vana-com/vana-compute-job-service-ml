@@ -7,12 +7,13 @@ A FastAPI-based inference/training engine for Vana using Poetry and Unsloth.
 This project implements a long-running compute service for training and inference of language models. It provides two main endpoints:
 
 1. `/train` - For training and fine-tuning language models using query results
-2. `/inference` - For generating text using fine-tuned models
+2. `/chat/completions` - OpenAI-compatible API for chat completions
 
 The application is designed to run as a long-running service inside a TEE (Trusted Execution Environment) and communicate with the Compute Engine via HTTP.
 
 ## Features
 
+- **OpenAI-Compatible API**: Drop-in replacement for OpenAI's chat completions API
 - **Query-Based Training**: Train models using the results of specific queries
 - **Real-time Training Progress**: Monitor training progress in real-time using Server-Sent Events (SSE)
 - **FastAPI Backend**: Provides a robust API for training and inference
@@ -32,7 +33,7 @@ app/                    # Application code
 │   ├── inference.py    # Text generation using fine-tuned models
 │   └── trainer.py      # Model training using Unsloth
 ├── routers/            # API route definitions
-│   ├── inference.py    # Inference API endpoints
+│   ├── inference.py    # Inference API endpoints (OpenAI-compatible)
 │   └── training.py     # Training API endpoints
 └── utils/              # Utility functions
     ├── db.py           # Database operations
@@ -69,6 +70,24 @@ app/                    # Application code
 
 ## API Endpoints
 
+### OpenAI-Compatible Chat Completions
+
+- `POST /chat/completions`: Generate chat completions (OpenAI-compatible)
+  ```json
+  {
+    "model": "my_finetuned_model",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "What is machine learning?"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 512,
+    "stream": false
+  }
+  ```
+
+- `GET /models`: List all available models (OpenAI-compatible)
+
 ### Training
 
 - `POST /train`: Start a training job using query results
@@ -95,21 +114,63 @@ app/                    # Application code
 
 - `GET /train/{job_id}/events/history`: Get the history of training events
 
-### Inference
+## OpenAI API Compatibility
 
-- `POST /inference`: Generate text using a fine-tuned model
-  ```json
-  {
-    "model_path": "my_finetuned_model",
-    "prompt": "What is machine learning?",
-    "max_new_tokens": 512,
-    "temperature": 0.7,
-    "top_p": 0.9,
-    "stream": false
-  }
-  ```
+The inference API is designed to be compatible with OpenAI's API, allowing you to use it as a drop-in replacement for applications built with the OpenAI SDK:
 
-- `GET /inference/models`: List all available fine-tuned models
+### Python Example
+
+```python
+import openai
+
+# Configure the client to use your Vana Inference Engine
+client = openai.OpenAI(
+    base_url="http://localhost:8000",  # Your Vana Inference Engine URL
+    api_key="dummy-key"  # Not used but required by the client
+)
+
+# Use the same API as you would with OpenAI
+response = client.chat.completions.create(
+    model="my_finetuned_model",  # Your fine-tuned model name
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is machine learning?"}
+    ],
+    temperature=0.7,
+    max_tokens=512
+)
+
+print(response.choices[0].message.content)
+```
+
+### JavaScript Example
+
+```javascript
+import OpenAI from 'openai';
+
+// Configure the client to use your Vana Inference Engine
+const openai = new OpenAI({
+  baseURL: 'http://localhost:8000',  // Your Vana Inference Engine URL
+  apiKey: 'dummy-key'  // Not used but required by the client
+});
+
+// Use the same API as you would with OpenAI
+async function main() {
+  const response = await openai.chat.completions.create({
+    model: 'my_finetuned_model',  // Your fine-tuned model name
+    messages: [
+      { role: 'system', content: 'You are a helpful assistant.' },
+      { role: 'user', content: 'What is machine learning?' }
+    ],
+    temperature: 0.7,
+    max_tokens: 512
+  });
+
+  console.log(response.choices[0].message.content);
+}
+
+main();
+```
 
 ## Query-Based Training
 
@@ -145,27 +206,6 @@ The application provides real-time updates on training progress using Server-Sen
 2. **Monitoring Progress**:
    - Connect to `/train/{job_id}/events` to receive real-time updates
    - Use `/train/{job_id}/events/history` to get all past events
-
-3. **Client Example**:
-   ```javascript
-   const eventSource = new EventSource('/train/train_1234abcd/events');
-   
-   eventSource.addEventListener('progress', (event) => {
-     const data = JSON.parse(event.data);
-     console.log(`Progress: ${data.progress}%, Step: ${data.step}/${data.total_steps}`);
-     updateProgressBar(data.progress);
-   });
-   
-   eventSource.addEventListener('complete', (event) => {
-     console.log('Training completed!');
-     eventSource.close();
-   });
-   
-   eventSource.addEventListener('error', (event) => {
-     console.error('Training error:', event.data);
-     eventSource.close();
-   });
-   ```
 
 ## Environment Variables
 

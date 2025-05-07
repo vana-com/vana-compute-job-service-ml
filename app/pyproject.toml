@@ -19,6 +19,7 @@ peft = "^0.8.0"
 datasets = "^2.16.0"
 sqlalchemy = "^2.0.0"
 sqlite3-api = "^0.1.0"
+tiktoken = "^0.5.0"  # Added for OpenAI-compatible token counting
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
