@@ -241,3 +241,97 @@ For deployment in a TEE environment, follow these steps:
 6. Get approval from the DLP owner
 
 7. Register and submit the Compute Job for execution
+
+## Model Setup and Management
+
+### Model Placement for Docker Setup
+
+When running the application using Docker, models are managed through three mounted directories:
+
+1. **Input Directory** (`./input` → `/mnt/input`): Contains input data such as query results used for training.
+2. **Output Directory** (`./output` → `/mnt/output`): Stores trained and fine-tuned models that can be used for inference.
+3. **Working Directory** (`./working` → `/mnt/working`): Contains temporary files and model caches used during training.
+
+To set up models for inference:
+
+1. Place your pre-trained models in the `./output` directory on your host machine. Each model should be in its own subdirectory.
+2. The directory structure should be:
+   ```
+   ./output/
+   ├── model_name_1/
+   │   ├── config.json
+   │   ├── tokenizer.json
+   │   ├── model.safetensors
+   │   └── metadata.json (optional)
+   ├── model_name_2/
+   │   └── ...
+   ```
+
+3. When running the Docker container, these models will be accessible at `/mnt/output` inside the container.
+
+### Setting Up Models for Inference
+
+There are two ways to set up models for inference:
+
+#### 1. Using the Training API
+
+The easiest way to set up a model is to train it using the `/train` endpoint:
+
+```bash
+curl -X POST http://localhost:8000/train \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "meta-llama/Llama-2-7b-hf",
+    "output_dir": "my_custom_model",
+    "training_params": {
+      "num_epochs": 3,
+      "learning_rate": 2e-4,
+      "batch_size": 4
+    },
+    "query_params": {
+      "query": "SELECT * FROM your_data_table",
+      "params": []
+    }
+  }'
+```
+
+This will:
+- Download the base model (if not already cached)
+- Train it using the provided query data
+- Save the fine-tuned model to `/mnt/output/my_custom_model`
+
+#### 2. Manually Copying Pre-trained Models
+
+You can also manually copy pre-trained models to the `./output` directory:
+
+1. Create a subdirectory with your model name in the `./output` directory
+2. Copy all model files (config.json, tokenizer.json, model.safetensors, etc.) to this directory
+3. Optionally, create a `metadata.json` file with information about the model
+
+### Using Models for Inference
+
+Once a model is available in the output directory, you can use it for inference via the OpenAI-compatible API:
+
+```bash
+curl -X POST http://localhost:8000/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "my_custom_model",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "What is machine learning?"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 512
+  }'
+```
+
+### Listing Available Models
+
+To see all available models:
+
+```bash
+curl http://localhost:8000/models
+```
+
+This will return a list of all models in the `/mnt/output` directory that have a valid `config.json` file.
