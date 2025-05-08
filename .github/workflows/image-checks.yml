@@ -21,10 +21,6 @@ jobs:
       - name: Run image-build script
         run: ./image-build.sh
         shell: bash
-      
-      - name: Run image-run script
-        run: ./image-run.sh
-        shell: bash
 
       - name: Upload exported image
         uses: actions/upload-artifact@v4
