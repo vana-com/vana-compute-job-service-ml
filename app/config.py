@@ -4,9 +4,9 @@ from pydantic_settings import BaseSettings
 
 # Base directories
 BASE_DIR = Path(__file__).resolve().parent
-INPUT_DIR = Path(os.getenv("INPUT_PATH", "/mnt/input"))
-OUTPUT_DIR = Path(os.getenv("OUTPUT_PATH", "/mnt/output"))
-WORKING_DIR = Path(os.getenv("WORKING_PATH", "/mnt/working"))
+INPUT_DIR = Path(os.getenv("INPUT_PATH", BASE_DIR / "data/input"))
+OUTPUT_DIR = Path(os.getenv("OUTPUT_PATH", BASE_DIR / "data/output"))
+WORKING_DIR = Path(os.getenv("WORKING_PATH", BASE_DIR / "data/working"))
 
 # Ensure directories exist
 INPUT_DIR.mkdir(exist_ok=True, parents=True)

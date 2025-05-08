@@ -8,9 +8,9 @@ import asyncio
 from pathlib import Path
 import uuid
 
-from app.config import settings
-from app.models.inference import generate_chat_completion
-from app.models.schemas import (
+from config import settings
+from models.inference import generate_chat_completion
+from models.schemas import (
     Message, 
     ChatCompletionRequest, 
     ChatCompletionResponse, 

@@ -1,33 +1,64 @@
+# ═════════════════════════════════════════════════════════════════════
+# Vana Inference | Poetry Configuration
+# ═════════════════════════════════════════════════════════════════════
+
 [tool.poetry]
-name = "vana-inference"
-version = "0.1.0"
+name        = "vana-inference"
+version     = "0.1.0"
 description = "FastAPI-based inference/training engine for Vana"
-authors = ["Your Name <your.email@example.com>"]
-readme = "README.md"
+authors     = ["Alex <alex@opendatalabs.xyz>"]
+readme      = "README.md"
 package-mode = false
 
+# ─────────────────────────────────────────────────────────────────────
+# Package Sources
+# ─────────────────────────────────────────────────────────────────────
+
+[[tool.poetry.source]]
+name     = "pytorch-cuda"
+priority = "explicit"
+url      = "https://download.pytorch.org/whl/cu121"
+
+[[tool.poetry.source]]
+name     = "pytorch-cpu"
+priority = "explicit"
+url      = "https://download.pytorch.org/whl/cpu"
+
+# ─────────────────────────────────────────────────────────────────────
+# Dependencies
+# ─────────────────────────────────────────────────────────────────────
+
 [tool.poetry.dependencies]
-python = "^3.10"
-fastapi = "^0.115.12"
-uvicorn = "^0.34.2"
-pydantic = "^2.6.0"
-unsloth = {extras = ["cu121onlytorch240", "huggingface"], version = "2024.12.4"}
-torch = ">=2.0.0"
-transformers = "^4.38.0"
-accelerate = ">=0.34.1"
-bitsandbytes = "^0.45.5"
-peft = "^0.15.2"
-datasets = "^3.6.0"
-sqlalchemy = "^2.0.0"
-tiktoken = "^0.9.0"  # Added for OpenAI-compatible token counting
-psutil = "^5.9.0"  # Added for system resource monitoring in health checks
+python              = "^3.10"
+fastapi             = "^0.115.12"
+uvicorn             = "^0.34.2"
+pydantic            = "^2.6.0"
+pydantic-settings   = "^2.1.0"
+unsloth             = {extras = ["cu121onlytorch240", "huggingface"], version = "2024.12.4"}
+torch               = {version = "2.4.0", source = "pytorch-cuda"}
+transformers        = "^4.38.0"
+accelerate          = ">=0.34.1"
+bitsandbytes        = "^0.45.5"
+peft                = "^0.15.2"
+datasets            = "^3.6.0"
+sqlalchemy          = "^2.0.0"
+tiktoken            = "^0.9.0"
+psutil              = "^5.9.0"
+
+# ─────────────────────────────────────────────────────────────────────
+# Development Dependencies
+# ─────────────────────────────────────────────────────────────────────
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.3.5"
-black = "^25.1.0"
-isort = "^6.0.1"
-mypy = "^1.5.0"
+pytest              = "^8.3.5"
+black               = "^25.1.0"
+isort               = "^6.0.1"
+mypy                = "^1.5.0"
+
+# ─────────────────────────────────────────────────────────────────────
+# Build System
+# ─────────────────────────────────────────────────────────────────────
 
 [build-system]
-requires = ["poetry-core"]
+requires      = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

@@ -13,9 +13,9 @@ from datasets import Dataset
 import bitsandbytes as bnb
 from transformers import TrainingArguments, Trainer, TrainerCallback
 
-from app.config import settings
-from app.utils.db import get_training_data, format_training_examples, save_training_status
-from app.utils.events import add_training_event
+from config import settings
+from utils.db import get_training_data, format_training_examples, save_training_status
+from utils.events import add_training_event
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

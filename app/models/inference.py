@@ -12,8 +12,8 @@ from unsloth import FastLanguageModel
 from transformers import TextIteratorStreamer
 from threading import Thread
 
-from app.config import settings
-from app.models.schemas import (
+from config import settings
+from models.schemas import (
     Message, 
     ChatCompletionResponse, 
     ChatCompletionResponseChoice, 

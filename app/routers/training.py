@@ -8,10 +8,10 @@ import asyncio
 from pathlib import Path
 import json
 
-from app.config import settings
-from app.models.trainer import train_model
-from app.utils.db import get_training_data
-from app.utils.events import subscribe_to_training_events, format_sse_event, get_training_events
+from config import settings
+from models.trainer import train_model
+from utils.db import get_training_data
+from utils.events import subscribe_to_training_events, format_sse_event, get_training_events
 
 router = APIRouter()
 

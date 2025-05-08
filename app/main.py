@@ -1,6 +1,5 @@
 import os
 import uvicorn
-import torch
 import shutil
 import psutil
 from pathlib import Path
@@ -8,10 +7,11 @@ from fastapi import FastAPI, Depends, HTTPException, status, Body
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, List
 
-from app.routers import training, inference
-from app.config import settings
-from app.utils.db import get_connection, execute_query, get_training_data
-from app.models.inference import load_model
+from torch import cuda
+from routers import training, inference
+from config import settings
+from utils.db import get_connection, execute_query, get_training_data
+from models.inference import load_model
 
 app = FastAPI(
     title="Vana Inference Engine",
@@ -227,20 +227,20 @@ async def health_check():
     
     # Check GPU/CUDA availability
     try:
-        cuda_available = torch.cuda.is_available()
+        cuda_available = cuda.is_available()
         gpu_info = {
             "cuda_available": cuda_available,
-            "device_count": torch.cuda.device_count() if cuda_available else 0,
+            "device_count": cuda.device_count() if cuda_available else 0,
         }
         
         if cuda_available:
             gpu_info["devices"] = []
             for i in range(gpu_info["device_count"]):
                 gpu_info["devices"].append({
-                    "name": torch.cuda.get_device_name(i),
-                    "memory_total": torch.cuda.get_device_properties(i).total_memory,
-                    "memory_allocated": torch.cuda.memory_allocated(i),
-                    "memory_reserved": torch.cuda.memory_reserved(i)
+                    "name": cuda.get_device_name(i),
+                    "memory_total": cuda.get_device_properties(i).total_memory,
+                    "memory_allocated": cuda.memory_allocated(i),
+                    "memory_reserved": cuda.memory_reserved(i)
                 })
         
         health_status["components"]["gpu"] = {
