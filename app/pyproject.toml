@@ -3,7 +3,7 @@ name = "vana-inference"
 version = "0.1.0"
 description = "FastAPI-based inference/training engine for Vana"
 authors = ["Your Name <your.email@example.com>"]
-readme = "app/README.md"
+readme = "README.md"
 packages = [{include = "app"}]
 
 [tool.poetry.dependencies]
