@@ -13,14 +13,15 @@ RUN apt-get update && apt-get install -y \
 RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="/root/.local/bin:$PATH"
 
-# Copy poetry configuration files first
-COPY pyproject.toml README.md poetry.lock* /app/
+# Copy poetry configuration files and README first
+COPY app/pyproject.toml app/poetry.lock* /app/
+COPY README.md /app/
 
 # Configure poetry to not use a virtual environment
 RUN poetry config virtualenvs.create false
 
 # Copy application code
-COPY app/ /app/app/
+COPY app/ /app/
 
 # Install dependencies
 RUN poetry install --without dev --no-interaction --no-ansi
@@ -38,4 +39,4 @@ ENV PORT=8000
 EXPOSE 8000
 
 # Run the application
-CMD ["python", "-m", "app.main"]
+CMD ["python", "-m", "main"]
