@@ -38,34 +38,40 @@ app/                    # Application code
 └── utils/              # Utility functions
     ├── db.py           # Database operations
     └── events.py       # Event handling for SSE
+scripts/
+  |── image-build.sh    # Build the Docker image
+  |── image-run.sh      # Run the Docker image
+  |── image-export.sh   # Export the Docker image to `.tar` file. (gzip + sha256 manually)
 ```
 
 ## Data Flow
 
 1. The application receives a training request with query parameters or a query ID
-2. If query parameters are provided, the application would submit the query to the Query Engine (simulated in this implementation)
-3. Input data is provided from the compute engine through a mounted `/mnt/input` directory containing query results
-4. The application processes this data for training or uses it for inference
-5. Output models and artifacts are saved to the `/mnt/output` directory
-6. Working files and model caches are stored in the `/mnt/working` directory
+2. The application submits queries to the Query Engine.
+  a. An existing query id can be supplied instead for query result reuse.
+3. Input data is downloaded from the Query Engine API to the `WORKING_PATH` directory as `<query_id>.db`.
+4. The application processes this data for training or uses it for inference.
+5. Output models and artifacts are saved to the `OUTPUT_PATH` directory.
+  a. Artifacts are scanned periodically and provided via the Compute Engine API for download. Created artifacts can be listed through the job status endpoint.
+6. Working files and model caches are stored in the `WORKING_PATH` directory.
 
 ## Quick Start
 
 1. Build the Docker image:
    ```bash
-   ./image-build.sh
+   ./scripts/image-build.sh
    ```
 
 2. Run the container:
    ```bash
-   ./image-run.sh
+   ./scripts/image-run.sh
    ```
 
 3. Access the API at http://localhost:8000
 
 4. Export the Docker image for deployment:
    ```bash
-   ./image-export.sh
+   ./scripts/image-export.sh
    ```
 
 ## API Endpoints
@@ -209,7 +215,6 @@ The application provides real-time updates on training progress using Server-Sen
 
 ## Environment Variables
 
-- `INPUT_PATH`: Path to the input directory (default: `/mnt/input`)
 - `OUTPUT_PATH`: Path to the output directory (default: `/mnt/output`)
 - `WORKING_PATH`: Path to the working directory (default: `/mnt/working`)
 - `PORT`: Port to run the FastAPI server on (default: `8000`)
