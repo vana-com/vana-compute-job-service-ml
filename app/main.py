@@ -3,15 +3,14 @@ import uvicorn
 import shutil
 import psutil
 from pathlib import Path
-from fastapi import FastAPI, Depends, HTTPException, status, Body
+from fastapi import FastAPI, HTTPException, status, Body
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, List
 
 from torch import cuda
 from routers import training, inference
-from config import settings
+from config import WORKING_DIR, settings
 from utils.db import get_connection, execute_query, get_training_data
-from models.inference import load_model
 
 app = FastAPI(
     title="Vana Inference Engine",
@@ -35,6 +34,7 @@ app.include_router(inference.router, prefix="/inference", tags=["inference"])
 
 @app.post("/test-query", tags=["query"])
 async def test_query(
+    query_id: str = Body(..., description="DB ID to execute query against"),
     query: str = Body(..., description="SQL query to execute"),
     params: List[Any] = Body(None, description="Parameters for the query")
 ):
@@ -51,14 +51,15 @@ async def test_query(
     Returns:
         The query results
     """
+    db_path = WORKING_DIR / f"{query_id}.db"
     try:
-        results = execute_query(query, params)
+        results = execute_query(db_path, query, params)
         
         # Convert results to a more readable format
         column_names = []
         if results:
             # Get column names from cursor description
-            conn = get_connection()
+            conn = get_connection(db_path)
             cursor = conn.cursor()
             cursor.execute(query, params if params else [])
             column_names = [desc[0] for desc in cursor.description]
@@ -146,30 +147,9 @@ async def health_check():
         "timestamp": str(psutil.time.time()),
         "components": {}
     }
-    
-    # Check database connectivity
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.fetchone()
-        conn.close()
-        health_status["components"]["database"] = {
-            "status": "healthy",
-            "message": "Database connection successful",
-            "path": str(settings.DB_PATH)
-        }
-    except Exception as e:
-        health_status["status"] = "degraded"
-        health_status["components"]["database"] = {
-            "status": "unhealthy",
-            "message": f"Database connection failed: {str(e)}",
-            "path": str(settings.DB_PATH)
-        }
-    
+        
     # Check file system access
     file_systems = {
-        "input_dir": settings.INPUT_DIR,
         "output_dir": settings.OUTPUT_DIR,
         "working_dir": settings.WORKING_DIR,
         "model_dir": settings.MODEL_DIR

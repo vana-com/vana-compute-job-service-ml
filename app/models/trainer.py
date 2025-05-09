@@ -116,31 +116,31 @@ class TrainingProgressCallback(TrainerCallback):
 
 async def train_model(
     job_id: str,
+    query_id: str,
     model_name: str,
     output_dir: Path,
-    training_params: Dict[str, Any],
-    query_info: Optional[Dict[str, Any]] = None
+    training_params: Dict[str, Any]
 ):
     """
     Train a model using Unsloth with data from a specific query.
     
     Args:
         job_id: Unique identifier for the training job
+        query_id: ID of the query to use for training data
         model_name: Name of the base model to fine-tune
         output_dir: Directory to save the fine-tuned model
         training_params: Parameters for training
-        query_info: Information about the query to use for training data
     """
     try:
         # Update status to "preparing"
         save_training_status(job_id, {
             "job_id": job_id,
+            "query_id": query_id,
             "status": "preparing",
             "message": "Preparing for training",
             "start_time": datetime.now().isoformat(),
             "model_name": model_name,
-            "output_dir": str(output_dir),
-            "query_info": query_info
+            "output_dir": str(output_dir)
         })
         
         # Emit initial event
@@ -149,16 +149,16 @@ async def train_model(
             "init", 
             {
                 "job_id": job_id,
+                "query_id": query_id,
                 "model_name": model_name,
                 "output_dir": str(output_dir),
                 "training_params": training_params,
-                "query_info": query_info,
                 "timestamp": datetime.now().isoformat()
             }
         )
         
         logger.info(f"Starting training job {job_id} with model {model_name}")
-        logger.info(f"Query info: {query_info}")
+        logger.info(f"Query id: {query_id}")
         
         # Get training data using the query information
         logger.info("Fetching training data from query results")
@@ -172,7 +172,7 @@ async def train_model(
             }
         )
         
-        raw_data = get_training_data(query_info)
+        raw_data = get_training_data(query_id)
         
         if not raw_data or len(raw_data) == 0:
             error_msg = "No training data found in query results"

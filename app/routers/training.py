@@ -1,18 +1,19 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, status, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any, Union, AsyncGenerator
-import sqlite3
+from typing import List, Optional, Dict, Any
 import os
-import asyncio
 from pathlib import Path
 import json
+import logging
 
 from config import settings
 from models.trainer import train_model
 from utils.db import get_training_data
 from utils.events import subscribe_to_training_events, format_sse_event, get_training_events
+from utils.query_engine_client import QueryEngineClient
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 class QueryParams(BaseModel):
@@ -51,9 +52,9 @@ class TrainingRequest(BaseModel):
 class TrainingResponse(BaseModel):
     """Training response model."""
     job_id: str
+    query_id: str
     status: str
     message: str
-    query_id: Optional[str] = None
 
 @router.post("/", response_model=TrainingResponse, status_code=status.HTTP_202_ACCEPTED)
 async def train(
@@ -98,33 +99,63 @@ async def train(
         if request.training_params:
             training_params.update(request.training_params)
         
-        # Determine query information
-        query_info = None
         if request.query_id:
-            query_info = {"query_id": request.query_id}
-        elif request.query_params:
-            query_info = {
-                "query": request.query_params.query,
-                "params": request.query_params.params or [],
-                "refiner_id": request.query_params.refiner_id,
-                "query_signature": request.query_params.query_signature
-            }
+            logger.info(f"Training with existing query_id: {request.query_id}")
+
+            # Start training in background
+            background_tasks.add_task(
+                train_model,
+                job_id=job_id,
+                query_id=request.query_id,
+                model_name=request.model_name,
+                output_dir=full_output_path,
+                training_params=training_params
+            )
+            
+            return TrainingResponse(
+                job_id=job_id,
+                query_id=request.query_id,
+                status="started",
+                message=f"Training job started. Connect to /train/{job_id}/events for real-time updates."
+            )
+
+        client = QueryEngineClient()
+        result = client.execute_query(
+            job_id=job_id,
+            refiner_id=request.query_params.refiner_id,
+            query=request.query_params.query,
+            query_signature=request.query_params.query_signature,
+            results_dir=settings.WORKING_DIR
+        )
+
+        if not result.success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to execute query: {result.error}"
+            )
+        
+        query_id = result.data.get("query_id")
+        if not query_id:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="No query ID returned from query execution"
+            )
         
         # Start training in background
         background_tasks.add_task(
             train_model,
             job_id=job_id,
+            query_id=query_id,
             model_name=request.model_name,
             output_dir=full_output_path,
-            training_params=training_params,
-            query_info=query_info
+            training_params=training_params
         )
         
         return TrainingResponse(
             job_id=job_id,
+            query_id=query_id,
             status="started",
-            message=f"Training job started. Model will be saved to {output_dir}. Connect to /train/{job_id}/events for real-time updates.",
-            query_id=request.query_id
+            message=f"Training job started. Connect to /train/{job_id}/events for real-time updates."
         )
         
     except Exception as e:

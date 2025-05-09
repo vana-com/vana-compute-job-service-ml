@@ -1,36 +1,39 @@
 import sqlite3
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Optional, Union
+from typing import List, Dict, Any, Tuple
 import json
 import os
 import logging
 
-from config import settings
+from config import WORKING_DIR, settings
+from app.routers.training import QueryParams
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_connection():
+def get_connection(db_path: Path):
     """Get a connection to the SQLite database."""
-    if not settings.DB_PATH.exists():
-        raise FileNotFoundError(f"Database file not found at {settings.DB_PATH}")
+    if not db_path.exists():
+        raise FileNotFoundError(f"Database file not found at {db_path}")
     
-    return sqlite3.connect(settings.DB_PATH)
+    return sqlite3.connect(db_path)
 
-def execute_query(query: str, params: List[Any] = None) -> List[Tuple]:
+def execute_query(query_id: str, query: str, params: List[Any] = None) -> List[Tuple]:
     """
     Execute a query against the database.
     
     Args:
+        query_id: DB ID to execute query against
         query: SQL query to execute
         params: Parameters for the query
         
     Returns:
         List of tuples containing the query results
     """
+    db_path = WORKING_DIR / f"{query_id}.db"
     try:
-        conn = get_connection()
+        conn = get_connection(db_path)
         cursor = conn.cursor()
         
         if params:
@@ -46,45 +49,22 @@ def execute_query(query: str, params: List[Any] = None) -> List[Tuple]:
         logger.error(f"Error executing query: {e}")
         raise Exception(f"Failed to execute query: {str(e)}")
 
-def get_training_data(query_info: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def get_training_data(query_id: str) -> List[Dict[str, Any]]:
     """
-    Extract training data from the input database based on query information.
+    Extract training data from the referenced input database.
     
     Args:
-        query_info: Dictionary containing query information. Can be:
-            - {"query_id": str} - ID of an existing query
-            - {"query": str, "params": List, "refiner_id": int, "query_signature": str} - Parameters for a new query
-            - None - Use default query to get all data from results table
+        query_id: DB ID to get training data for (corresponds to query_id)
     
     Returns:
         List[Dict[str, Any]]: A list of training examples
     """
+    db_path = WORKING_DIR / f"{query_id}.db"
     try:
-        conn = get_connection()
+        conn = get_connection(db_path)
         cursor = conn.cursor()
         
-        # Log query information
-        if query_info:
-            logger.info(f"Using query info: {query_info}")
-        else:
-            logger.info("No query info provided, using default query")
-        
-        # If query_info is provided and contains a query, execute it
-        # In a real implementation, this would interact with the Query Engine
-        # For now, we'll just log it and proceed with the default query
-        if query_info and "query" in query_info:
-            logger.info(f"Would execute query: {query_info['query']} with params: {query_info.get('params', [])}")
-            logger.info(f"Refiner ID: {query_info.get('refiner_id')}, Query Signature: {query_info.get('query_signature')}")
-            
-            # In a real implementation, this would be:
-            # 1. Submit the query to the Query Engine
-            # 2. Wait for the Query Engine to process it
-            # 3. Download the results to the input directory
-            # 4. Use the results for training
-            
-            # For now, we'll just log that we would do this
-            logger.info("In production, this would submit the query to the Query Engine")
-            logger.info("For now, using existing query_results.db")
+        logger.info(f"Retrieving training data from DB: {query_id}")
         
         # Get the schema of the results table
         cursor.execute("PRAGMA table_info(results)")

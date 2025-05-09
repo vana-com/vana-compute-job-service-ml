@@ -4,12 +4,10 @@ from pydantic_settings import BaseSettings
 
 # Base directories
 BASE_DIR = Path(__file__).resolve().parent
-INPUT_DIR = Path(os.getenv("INPUT_PATH", BASE_DIR / "data/input"))
 OUTPUT_DIR = Path(os.getenv("OUTPUT_PATH", BASE_DIR / "data/output"))
 WORKING_DIR = Path(os.getenv("WORKING_PATH", BASE_DIR / "data/working"))
 
 # Ensure directories exist
-INPUT_DIR.mkdir(exist_ok=True, parents=True)
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 WORKING_DIR.mkdir(exist_ok=True, parents=True)
 
@@ -19,10 +17,7 @@ class Settings(BaseSettings):
     # API settings
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "Vana Inference Engine"
-    
-    # Database settings
-    DB_PATH: Path = INPUT_DIR / "query_results.db"
-    
+        
     # Model settings
     MODEL_DIR: Path = WORKING_DIR / "models"
     DEFAULT_BASE_MODEL: str = "meta-llama/Llama-2-7b-hf"
