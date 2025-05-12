@@ -2,11 +2,9 @@ import sqlite3
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 import json
-import os
 import logging
 
 from config import WORKING_DIR, settings
-from app.routers.training import QueryParams
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Vana Inference Engine"
         
     # Model settings
+    WORKING_DIR: Path = WORKING_DIR
+    OUTPUT_DIR: Path = OUTPUT_DIR
     MODEL_DIR: Path = WORKING_DIR / "models"
     DEFAULT_BASE_MODEL: str = "meta-llama/Llama-2-7b-hf"
     

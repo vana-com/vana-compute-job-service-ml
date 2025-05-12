@@ -17,7 +17,7 @@ package-mode = false
 [[tool.poetry.source]]
 name     = "pytorch-cuda"
 priority = "explicit"
-url      = "https://download.pytorch.org/whl/cu121"
+url      = "https://download.pytorch.org/whl/cu124"
 
 [[tool.poetry.source]]
 name     = "pytorch-cpu"
@@ -29,13 +29,13 @@ url      = "https://download.pytorch.org/whl/cpu"
 # ─────────────────────────────────────────────────────────────────────
 
 [tool.poetry.dependencies]
-python              = "^3.10"
+python              = "<3.13,>=3.10"
 fastapi             = "^0.115.12"
 uvicorn             = "^0.34.2"
 pydantic            = "^2.6.0"
 pydantic-settings   = "^2.1.0"
-unsloth             = {extras = ["cu121onlytorch240", "huggingface"], version = "2024.12.4"}
-torch               = {version = "2.4.0", source = "pytorch-cuda"}
+unsloth             = {extras = ["cu124onlytorch260", "huggingface"], version = "2025.5.1"}
+torch               = {version = "2.6.0+cu124", source = "pytorch-cuda"}
 transformers        = "^4.38.0"
 accelerate          = ">=0.34.1"
 bitsandbytes        = "^0.45.5"
