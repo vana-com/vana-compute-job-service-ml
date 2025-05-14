@@ -107,18 +107,20 @@ scripts/
       "batch_size": 4
     },
     "query_params": {
+      "compute_job_id": 12,
+      "refiner_id": 12,
       "query": "SELECT * FROM tweets WHERE user_id = ? ORDER BY created_at DESC LIMIT 100",
-      "params": ["user123"],
-      "refiner_id": 12
+      "query_signature": "<signed query contents>",
+      "params": ["user123"]
     }
   }
   ```
 
-- `GET /train/{job_id}`: Get the status of a training job
+- `GET /train/{training_job_id}`: Get the status of a training job
 
-- `GET /train/{job_id}/events`: Stream training events in real-time using SSE
+- `GET /train/{training_job_id}/events`: Stream training events in real-time using SSE
 
-- `GET /train/{job_id}/events/history`: Get the history of training events
+- `GET /train/{training_job_id}/events/history`: Get the history of training events
 
 ## OpenAI API Compatibility
 
@@ -210,8 +212,8 @@ The application provides real-time updates on training progress using Server-Sen
    - `error`: Sent if an error occurs during training
 
 2. **Monitoring Progress**:
-   - Connect to `/train/{job_id}/events` to receive real-time updates
-   - Use `/train/{job_id}/events/history` to get all past events
+   - Connect to `/train/{training_job_id}/events` to receive real-time updates
+   - Use `/train/{training_job_id}/events/history` to get all past events
 
 ## Environment Variables
 
