@@ -220,7 +220,7 @@ async def train_model(
             "start_time": datetime.now().isoformat(),
             "model_name": model_name,
             "output_dir": str(output_dir),
-            "query_info": query_info,
+            "query_id": query_id,
             "num_examples": len(training_examples)
         })
         
@@ -297,7 +297,7 @@ async def train_model(
             "start_time": datetime.now().isoformat(),
             "model_name": model_name,
             "output_dir": str(output_dir),
-            "query_info": query_info,
+            "query_id": query_id,
             "num_examples": len(training_examples)
         })
         
@@ -385,7 +385,7 @@ async def train_model(
             "base_model": model_name,
             "created_at": datetime.now().isoformat(),
             "training_params": training_params,
-            "query_info": query_info,
+            "query_id": query_id,
             "num_examples": len(training_examples)
         }
         
@@ -403,7 +403,7 @@ async def train_model(
             "end_time": datetime.now().isoformat(),
             "model_name": model_name,
             "output_dir": str(output_dir),
-            "query_info": query_info,
+            "query_id": query_id,
             "num_examples": len(training_examples)
         })
         
@@ -429,7 +429,7 @@ async def train_model(
             "error": str(e),
             "model_name": model_name,
             "output_dir": str(output_dir),
-            "query_info": query_info
+            "query_id": query_id
         })
         
         # Emit error event
