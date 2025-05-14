@@ -3,14 +3,13 @@ import time
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 import torch
 from datetime import datetime
 
 # Import Unsloth for efficient fine-tuning
 from unsloth import FastLanguageModel
 from datasets import Dataset
-import bitsandbytes as bnb
 from transformers import TrainingArguments, Trainer, TrainerCallback
 
 from config import settings
@@ -341,11 +340,11 @@ async def train_model(
         
         # Start training
         logger.info("Creating trainer")
-        trainer = FastLanguageModel.get_trainer(
+        trainer = Trainer(
             model=model,
             tokenizer=tokenizer,
             train_dataset=train_dataset,
-            formatting_func=formatting_func,
+            data_collator=FastLanguageModel.get_data_collator(tokenizer, formatting_func),
             args=training_args,
             callbacks=[progress_callback]
         )
