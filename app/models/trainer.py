@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Any
 import torch
 from datetime import datetime
+import asyncio
 
 # Import Unsloth for efficient fine-tuning
 from unsloth import FastLanguageModel
@@ -31,19 +32,19 @@ class TrainingProgressCallback(TrainerCallback):
         self.last_log_time = 0
         self.log_interval = 5  # seconds
     
-    async def on_train_begin(self, args, state, control, **kwargs):
+    def on_train_begin(self, args, state, control, **kwargs):
         """Called at the beginning of training."""
-        await add_training_event(
-            self.job_id, 
-            "start", 
-            {
-                "message": "Training started",
-                "total_steps": state.max_steps,
-                "timestamp": datetime.now().isoformat()
-            }
-        )
+        # Use synchronous function or queue the event
+        event_data = {
+            "message": "Training started",
+            "total_steps": state.max_steps,
+            "timestamp": datetime.now().isoformat()
+        }
+        # Non-blocking call to add event
+        asyncio.create_task(add_training_event(self.job_id, "start", event_data))
+        return control
     
-    async def on_step_end(self, args, state, control, **kwargs):
+    def on_step_end(self, args, state, control, **kwargs):
         """Called at the end of each step."""
         current_time = time.time()
         
@@ -71,48 +72,42 @@ class TrainingProgressCallback(TrainerCallback):
             else:
                 eta = "calculating..."
             
-            # Emit progress event
-            await add_training_event(
-                self.job_id, 
-                "progress", 
-                {
-                    "step": state.global_step,
-                    "total_steps": state.max_steps,
-                    "progress": round(progress, 2),
-                    "loss": state.log_history[-1]["loss"] if state.log_history else None,
-                    "learning_rate": state.log_history[-1]["learning_rate"] if state.log_history else None,
-                    "step_time": round(step_time, 2),
-                    "elapsed": round(current_time - self.start_time, 2),
-                    "eta": eta,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-    
-    async def on_log(self, args, state, control, logs=None, **kwargs):
-        """Called when logs are available."""
-        if logs:
-            await add_training_event(
-                self.job_id, 
-                "log", 
-                {
-                    "step": state.global_step,
-                    "logs": logs,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-    
-    async def on_train_end(self, args, state, control, **kwargs):
-        """Called at the end of training."""
-        await add_training_event(
-            self.job_id, 
-            "complete", 
-            {
-                "message": "Training completed",
-                "total_steps": state.global_step,
-                "total_time": round(time.time() - self.start_time, 2),
+            # Queue event in non-blocking way
+            event_data = {
+                "step": state.global_step,
+                "total_steps": state.max_steps,
+                "progress": round(progress, 2),
+                "loss": state.log_history[-1]["loss"] if state.log_history else None,
+                "learning_rate": state.log_history[-1]["learning_rate"] if state.log_history else None,
+                "step_time": round(step_time, 2),
+                "elapsed": round(current_time - self.start_time, 2),
+                "eta": eta,
                 "timestamp": datetime.now().isoformat()
             }
-        )
+            asyncio.create_task(add_training_event(self.job_id, "progress", event_data))
+        
+        return control
+    
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        """Called when logs are available."""
+        if logs:
+            event_data = {
+                "step": state.global_step,
+                "logs": logs,
+                "timestamp": datetime.now().isoformat()
+            }
+            asyncio.create_task(add_training_event(self.job_id, "log", event_data))
+    
+    def on_train_end(self, args, state, control, **kwargs):
+        """Called at the end of training."""
+        event_data = {
+            "message": "Training completed",
+            "total_steps": state.global_step,
+            "total_time": round(time.time() - self.start_time, 2),
+            "timestamp": datetime.now().isoformat()
+        }
+        asyncio.create_task(add_training_event(self.job_id, "complete", event_data))
+        return control
 
 async def train_model(
     job_id: str,
