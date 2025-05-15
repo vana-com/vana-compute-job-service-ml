@@ -44,11 +44,14 @@ def load_model(model_path: Path):
     
     # Load model with Unsloth
     model, tokenizer = FastLanguageModel.from_pretrained(
-        model_path=str(model_path),
+        str(model_path),
         max_seq_length=settings.MAX_SEQ_LENGTH,
         dtype=torch.bfloat16,
         load_in_4bit=True
     )
+    
+    # Enable optimized inference kernels
+    FastLanguageModel.for_inference(model)
     
     # Cache the model
     model_cache[cache_key] = (model, tokenizer)
