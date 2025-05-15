@@ -146,11 +146,21 @@ async def generate_chat_completion(
     # Load model
     model, tokenizer = load_model(model_path)
     
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
     # Format prompt from messages
     prompt = format_prompt_from_messages(messages)
     
     # Tokenize input
-    inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(model.device)
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=settings.MAX_SEQ_LENGTH,
+        return_attention_mask=True
+    ).to(model.device)
     
     # Count tokens
     prompt_tokens = inputs.input_ids.shape[1]
