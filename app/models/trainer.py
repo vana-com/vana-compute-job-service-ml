@@ -271,8 +271,8 @@ async def train_model(
         def formatting_func(examples):
             # Handle both single examples and batches
             if isinstance(examples["prompt"], str):
-                # Single example case
-                return examples["prompt"] + examples["completion"] + tokenizer.eos_token
+                # Single example case - must return a list with one string
+                return [examples["prompt"] + examples["completion"] + tokenizer.eos_token]
             else:
                 # Batch case
                 output_texts = []
