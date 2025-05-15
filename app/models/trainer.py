@@ -269,11 +269,17 @@ async def train_model(
         
         # Convert training examples to dataset
         def formatting_func(examples):
-            output_texts = []
-            for i in range(len(examples["prompt"])):
-                text = examples["prompt"][i] + examples["completion"][i] + tokenizer.eos_token
-                output_texts.append(text)
-            return output_texts
+            # Handle both single examples and batches
+            if isinstance(examples["prompt"], str):
+                # Single example case
+                return examples["prompt"] + examples["completion"] + tokenizer.eos_token
+            else:
+                # Batch case
+                output_texts = []
+                for i in range(len(examples["prompt"])):
+                    text = examples["prompt"][i] + examples["completion"][i] + tokenizer.eos_token
+                    output_texts.append(text)
+                return output_texts
         
         await add_training_event(
             job_id, 
