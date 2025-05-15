@@ -17,7 +17,7 @@ from trl import SFTTrainer, SFTConfig
 from config import settings
 from utils.db import get_training_data, format_training_examples, save_training_status
 from utils.events import add_training_event
-
+from utils.devices import supported_dtype
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -234,7 +234,7 @@ async def train_model(
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=training_params.get("max_seq_length", settings.MAX_SEQ_LENGTH),
-            dtype=torch.bfloat16,
+            dtype=supported_dtype,
             load_in_4bit=True
         )
         

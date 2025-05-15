@@ -1,11 +1,10 @@
 import time
-import json
-import asyncio
 from pathlib import Path
-from typing import Dict, Any, Generator, Union, List, Optional
+from typing import Generator, Union, List, Optional
 import torch
 import tiktoken
 from datetime import datetime
+from utils.devices import supported_dtype
 
 # Import Unsloth for efficient inference
 from unsloth import FastLanguageModel
@@ -46,10 +45,10 @@ def load_model(model_path: Path):
     model, tokenizer = FastLanguageModel.from_pretrained(
         str(model_path),
         max_seq_length=settings.MAX_SEQ_LENGTH,
-        dtype=torch.bfloat16,
+        dtype=supported_dtype,
         load_in_4bit=True
     )
-    
+
     # Enable optimized inference kernels
     FastLanguageModel.for_inference(model)
     
@@ -151,7 +150,7 @@ async def generate_chat_completion(
     prompt = format_prompt_from_messages(messages)
     
     # Tokenize input
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    inputs = tokenizer(prompt, return_tensors="pt", padding=True).to(model.device)
     
     # Count tokens
     prompt_tokens = inputs.input_ids.shape[1]
