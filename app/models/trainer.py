@@ -10,7 +10,8 @@ from datetime import datetime
 # Import Unsloth for efficient fine-tuning
 from unsloth import FastLanguageModel
 from datasets import Dataset
-from transformers import TrainingArguments, Trainer, TrainerCallback
+from transformers import TrainerCallback
+from trl import SFTTrainer, SFTConfig
 
 from config import settings
 from utils.db import get_training_data, format_training_examples, save_training_status
@@ -318,7 +319,7 @@ async def train_model(
             }
         )
         
-        training_args = TrainingArguments(
+        training_args = SFTConfig(
             output_dir=str(output_dir),
             num_train_epochs=num_epochs,
             per_device_train_batch_size=batch_size,
@@ -340,11 +341,11 @@ async def train_model(
         
         # Start training
         logger.info("Creating trainer")
-        trainer = Trainer(
+        trainer = SFTTrainer(
             model=model,
             tokenizer=tokenizer,
             train_dataset=train_dataset,
-            data_collator=FastLanguageModel.get_data_collator(tokenizer, formatting_func),
+            formatting_func=formatting_func,
             args=training_args,
             callbacks=[progress_callback]
         )
