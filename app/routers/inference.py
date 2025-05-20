@@ -1,11 +1,8 @@
 from fastapi import APIRouter, HTTPException, status, Request, Depends
 from fastapi.responses import StreamingResponse, JSONResponse
-from typing import List, Optional, Dict, Any, Union
-import os
+from typing import Dict, Any
 import time
 import json
-import asyncio
-from pathlib import Path
 import uuid
 
 from config import settings
@@ -22,7 +19,7 @@ from models.schemas import (
 
 router = APIRouter()
 
-@router.post("/chat/completions", response_model=Union[ChatCompletionResponse, StreamingResponse])
+@router.post("/chat/completions")
 async def create_chat_completion(request: ChatCompletionRequest):
     """
     Create a chat completion following the OpenAI API specification.

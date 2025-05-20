@@ -1,14 +1,13 @@
 import time
-import json
-import asyncio
 from pathlib import Path
-from typing import Dict, Any, Generator, Union, List, Optional
+from typing import Generator, Union, List, Optional
 import torch
 import tiktoken
-from datetime import datetime
+from utils.devices import supported_dtype
 
 # Import Unsloth for efficient inference
 from unsloth import FastLanguageModel
+from unsloth.chat_templates import get_chat_template
 from transformers import TextIteratorStreamer
 from threading import Thread
 
@@ -44,11 +43,19 @@ def load_model(model_path: Path):
     
     # Load model with Unsloth
     model, tokenizer = FastLanguageModel.from_pretrained(
-        model_path=str(model_path),
+        str(model_path),
         max_seq_length=settings.MAX_SEQ_LENGTH,
-        dtype=torch.bfloat16,
+        dtype=supported_dtype,
         load_in_4bit=True
     )
+    
+    tokenizer = get_chat_template(tokenizer, chat_template="alpaca")
+
+    # Enable inference kernels
+    FastLanguageModel.for_inference(model)
+
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
     
     # Cache the model
     model_cache[cache_key] = (model, tokenizer)
@@ -76,16 +83,31 @@ def count_tokens(text: str, model_name: str = "gpt-3.5-turbo") -> int:
     tokenizer = tokenizer_cache[model_name]
     return len(tokenizer.encode(text))
 
-def format_prompt_from_messages(messages: List[Message]) -> str:
+def format_prompt_from_messages(messages: List[Message], tokenizer=None) -> str:
     """
     Format a prompt from a list of messages in the OpenAI format.
     
     Args:
         messages: List of messages in the OpenAI format
+        tokenizer: Optional tokenizer to use its chat template
         
     Returns:
         str: Formatted prompt for the model
     """
+    # If we have a tokenizer, use its built-in chat template
+    if tokenizer and hasattr(tokenizer, "apply_chat_template"):
+        # Convert our Message objects to the format expected by apply_chat_template
+        formatted_messages = []
+        for msg in messages:
+            formatted_messages.append({"role": msg.role, "content": msg.content})
+        
+        return tokenizer.apply_chat_template(
+            formatted_messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+    
+    # Fallback to manual formatting
     prompt = ""
     
     for message in messages:
@@ -144,11 +166,18 @@ async def generate_chat_completion(
     # Load model
     model, tokenizer = load_model(model_path)
     
-    # Format prompt from messages
-    prompt = format_prompt_from_messages(messages)
+    # Format prompt from messages using tokenizer's chat template
+    prompt = format_prompt_from_messages(messages, tokenizer)
     
     # Tokenize input
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=settings.MAX_SEQ_LENGTH,
+        return_attention_mask=True
+    ).to(model.device)
     
     # Count tokens
     prompt_tokens = inputs.input_ids.shape[1]
@@ -258,6 +287,7 @@ async def generate_chat_completion(
     with torch.no_grad():
         outputs = model.generate(
             input_ids=inputs.input_ids,
+            attention_mask=inputs.attention_mask,
             **generation_config
         )
     

@@ -26,11 +26,10 @@ COPY app/ /app/
 # Install dependencies
 RUN poetry install --without dev --no-interaction --no-ansi
 
-# Create directories for input, output, and working data
-RUN mkdir -p /mnt/input /mnt/output /mnt/working
+# Create directories for output, and working data
+RUN mkdir -p /mnt/output /mnt/working
 
 # Set environment variables
-ENV INPUT_PATH=/mnt/input
 ENV OUTPUT_PATH=/mnt/output
 ENV WORKING_PATH=/mnt/working
 ENV PORT=8000
