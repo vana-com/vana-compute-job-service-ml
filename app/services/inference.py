@@ -31,7 +31,7 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from fastapi import HTTPException, status
 from app.models.inference import ModelData, ModelListResponse
@@ -55,7 +55,7 @@ class InferenceService:
     
     def get_model_path(self, model_name: str) -> Path:
         """
-        Get path to a model directory.
+        Get path to a working model directory in WORKING_DIR.
         
         Args:
             model_name: Name of the model to find
@@ -67,7 +67,7 @@ class InferenceService:
             HTTPException: If the model is not found
         """
         logger.debug(f"Looking for model: {model_name}")
-        model_path = self.settings.OUTPUT_DIR / model_name
+        model_path = self.settings.WORKING_DIR / model_name
         
         if not model_path.exists():
             logger.error(f"Model not found: {model_name} (path: {model_path})")
@@ -102,28 +102,30 @@ class InferenceService:
     
     def list_available_models(self) -> ModelListResponse:
         """
-        List all available models.
+        List all available models in the working directory.
         
         Returns:
             ModelListResponse containing available models
         """
-        logger.info(f"Listing available models in {self.settings.OUTPUT_DIR}")
+        logger.info(f"Listing available models in {self.settings.WORKING_DIR}")
         models_data: List[ModelData] = []
         
         try:
-            # Ensure the output directory exists
-            if not self.settings.OUTPUT_DIR.exists():
-                logger.warning(f"Output directory doesn't exist: {self.settings.OUTPUT_DIR}")
-                self.settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Created output directory: {self.settings.OUTPUT_DIR}")
+            # Ensure the working directory exists
+            if not self.settings.WORKING_DIR.exists():
+                logger.warning(f"Working directory doesn't exist: {self.settings.WORKING_DIR}")
+                self.settings.WORKING_DIR.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created working directory: {self.settings.WORKING_DIR}")
                 
             # Count how many directories we check
             checked_dirs = 0
             valid_models = 0
             
-            for model_dir in self.settings.OUTPUT_DIR.glob("*"):
+            for model_dir in self.settings.WORKING_DIR.glob("*"):
                 checked_dirs += 1
-                if model_dir.is_dir() and (model_dir / "config.json").exists():
+                if model_dir.is_dir() and \
+                    model_dir.name.startswith("model_") and \
+                    (model_dir / "metadata.json").exists():
                     logger.debug(f"Found valid model at: {model_dir}")
                     valid_models += 1
                     models_data.append(self.create_model_data(model_dir))

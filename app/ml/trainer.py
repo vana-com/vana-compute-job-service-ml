@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
 import asyncio
+import zipfile
 
 # Import Unsloth for efficient fine-tuning
 from unsloth import FastLanguageModel, __version__ as unsloth_version
@@ -216,7 +217,8 @@ async def train_model(
     job_id: str,
     query_id: str,
     model_name: str,
-    output_dir: Path,
+    working_path: Path,
+    output_path: Path,
     training_params: Dict[str, Any]
 ):
     """
@@ -226,7 +228,8 @@ async def train_model(
         job_id: Unique identifier for the training job
         query_id: ID of the query to use for training data
         model_name: Name of the base model to fine-tune
-        output_dir: Directory to save the fine-tuned model
+        working_path: Directory path to save the fine-tuned model to
+        output_path: Zip file path to save the fine-tuned model to for artifact scanning + download
         training_params: Parameters for training
     """
     start_time = time.time()
@@ -254,7 +257,8 @@ async def train_model(
         # Log training parameters
         logger.info(f"Training job {job_id} configuration:")
         logger.info(f"- Model name: {model_name}")
-        logger.info(f"- Output directory: {output_dir}")
+        logger.info(f"- Working directory: {working_path}")
+        logger.info(f"- Artifact path: {output_path}")
         logger.info(f"- Query ID: {query_id}")
         logger.info(f"- Training parameters: {training_params}")
         
@@ -266,7 +270,8 @@ async def train_model(
             "message": "Preparing for training",
             "start_time": datetime.now().isoformat(),
             "model_name": model_name,
-            "output_dir": str(output_dir)
+            "working_path": str(working_path),
+            "output_path": str(output_path)
         })
         
         # Emit initial event
@@ -277,7 +282,8 @@ async def train_model(
                 "job_id": job_id,
                 "query_id": query_id,
                 "model_name": model_name,
-                "output_dir": str(output_dir),
+                "working_path": str(working_path),
+                "output_path": str(output_path),
                 "training_params": training_params,
                 "timestamp": datetime.now().isoformat(),
                 "system_info": {
@@ -390,7 +396,8 @@ async def train_model(
             "message": f"Loading model {model_name}",
             "start_time": datetime.now().isoformat(),
             "model_name": model_name,
-            "output_dir": str(output_dir),
+            "working_path": str(working_path),
+            "output_path": str(output_path),
             "query_id": query_id,
             "num_examples": len(training_examples)
         })
@@ -548,7 +555,8 @@ async def train_model(
             "message": "Training in progress",
             "start_time": datetime.now().isoformat(),
             "model_name": model_name,
-            "output_dir": str(output_dir),
+            "working_path": str(working_path),
+            "output_path": str(output_path),
             "query_id": query_id,
             "num_examples": len(training_examples)
         })
@@ -576,7 +584,7 @@ async def train_model(
         
         try:
             training_args = SFTConfig(
-                output_dir=str(output_dir),
+                output_dir=str(working_path),
                 num_train_epochs=num_epochs,
                 per_device_train_batch_size=batch_size,
                 gradient_accumulation_steps=4,
@@ -688,34 +696,35 @@ async def train_model(
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "model_name": model_name,
-                "output_dir": str(output_dir),
+                "working_path": str(working_path),
+                "output_path": str(output_path),
                 "query_id": query_id
             })
             
             raise RuntimeError(error_msg) from e
         
         # Save the model
-        logger.info(f"Training complete, saving model to {output_dir}")
+        logger.info(f"Training complete, saving model to {working_path}")
         await add_training_event(
             job_id, 
             "status", 
             {
                 "status": "saving_model",
-                "message": f"Training complete, saving model to {output_dir}",
+                "message": f"Training complete, saving model to {working_path}",
                 "timestamp": datetime.now().isoformat()
             }
         )
         
         try:
             # Ensure the output directory exists
-            os.makedirs(output_dir, exist_ok=True)
-            logger.info(f"Saving model to {output_dir}")
+            os.makedirs(working_path, exist_ok=True)
+            logger.info(f"Saving model to {working_path}")
             
-            model.save_pretrained(str(output_dir))
-            logger.info(f"Model saved to {output_dir}")
+            model.save_pretrained(str(working_path))
+            logger.info(f"Model saved to {working_path}")
             
-            tokenizer.save_pretrained(str(output_dir))
-            logger.info(f"Tokenizer saved to {output_dir}")
+            tokenizer.save_pretrained(str(working_path))
+            logger.info(f"Tokenizer saved to {working_path}")
         except Exception as e:
             error_msg = f"Failed to save model: {str(e)}"
             logger.error(error_msg)
@@ -752,7 +761,7 @@ async def train_model(
                 }
             }
             
-            metadata_path = output_dir / "metadata.json"
+            metadata_path = working_path / "metadata.json"
             with open(metadata_path, "w") as f:
                 json.dump(metadata, f, indent=4)
             
@@ -763,6 +772,10 @@ async def train_model(
             logger.error(traceback.format_exc())
             # This is non-fatal, so we'll continue
         
+        # Once training is complete, create the zip file for artifact scanning
+        if not zip_model_directory(working_path, output_path):
+            logger.error(f"Failed to create zip file artifact for job {job_id}")
+
         # Update status to "completed"
         save_training_status(job_id, {
             "job_id": job_id,
@@ -771,7 +784,8 @@ async def train_model(
             "start_time": datetime.now().isoformat(),
             "end_time": datetime.now().isoformat(),
             "model_name": model_name,
-            "output_dir": str(output_dir),
+            "working_path": str(working_path),
+            "output_path": str(output_path),
             "query_id": query_id,
             "num_examples": len(training_examples),
             "duration_seconds": round(time.time() - start_time, 2)
@@ -803,7 +817,8 @@ async def train_model(
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "model_name": model_name,
-                "output_dir": str(output_dir),
+                "working_path": str(working_path),
+                "output_path": str(output_path),
                 "query_id": query_id,
                 "duration_seconds": round(time.time() - start_time, 2)
             })
@@ -830,3 +845,42 @@ async def train_model(
             logger.error(f"Failed to emit error event: {str(event_e)}")
         
         raise e
+
+def zip_model_directory(source_dir: Path, output_zip: Path) -> bool:
+        """
+        Create a zip file from the model directory.
+        
+        Args:
+            source_dir: Path to the model directory
+            output_zip: Path to the output zip file
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Creating zip file of model at {source_dir} to {output_zip}")
+            
+            # Create parent directory if it doesn't exist
+            if not output_zip.parent.exists():
+                output_zip.parent.mkdir(parents=True, exist_ok=True)
+            
+            # If the zip file already exists, remove it
+            if output_zip.exists():
+                logger.info(f"Removing existing zip file: {output_zip}")
+                output_zip.unlink()
+            
+            # Create the zip file
+            with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Walk through the directory
+                for root, _, files in os.walk(source_dir):
+                    for file in files:
+                        file_path = Path(root) / file
+                        # Calculate the relative path to maintain directory structure
+                        rel_path = file_path.relative_to(source_dir.parent)
+                        zipf.write(file_path, rel_path)
+            
+            logger.info(f"Successfully created zip file: {output_zip}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create zip file: {str(e)}")
+            return False

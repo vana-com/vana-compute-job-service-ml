@@ -1,11 +1,13 @@
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
+import logging
 
 from app.ml.inference import generate_chat_completion
 from app.models.openai import ChatCompletionRequest, ChatCompletionResponse
 from app.models.inference import ModelListResponse, ModelData
 from app.services import InferenceService
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 inference_service = InferenceService()
 
@@ -33,8 +35,10 @@ async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompleti
         
         # If streaming is requested, use streaming response
         if request.stream:
+            # For streaming, return a streaming response
+            logger.info(f"Streaming chat completion for model {request.model}")
             return StreamingResponse(
-                generate_chat_completion(
+                await generate_chat_completion(
                     model_path=model_path,
                     messages=request.messages,
                     temperature=request.temperature,
@@ -62,13 +66,22 @@ async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompleti
         )
         
         return result
-        
+    except FileNotFoundError as e:
+        # Model not found
+        error_msg = f"Model '{request.model}' not found: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error_msg
+        )
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
+        error_msg = f"Error generating chat completion with model '{request.model}': {str(e)}"
+        logger.error(error_msg)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chat completion failed: {str(e)}"
+            detail=error_msg
         )
 
 @router.get("/models", response_model=ModelListResponse)
@@ -82,4 +95,13 @@ async def list_models() -> ModelListResponse:
     Raises:
         HTTPException: If there's an error listing models
     """
-    return inference_service.list_available_models()
+    try:
+        logger.info("Listing available models")
+        return inference_service.list_available_models()
+    except Exception as e:
+        error_msg = f"Error listing models: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_msg
+        )

@@ -100,8 +100,11 @@ class TrainingService:
             job_id = self.generate_job_id()
             logger.info(f"Generated job ID: {job_id}")
             
+            working_path = self.get_working_path(request, job_id)
+            logger.info(f"Model will be trained and saved to: {working_path}")
+
             output_path = self.get_output_path(request, job_id)
-            logger.info(f"Model will be saved to: {output_path}")
+            logger.info(f"Model artifact will be saved to: {output_path}")
             
             training_params = self.get_training_parameters(request.training_params)
             logger.debug(f"Training parameters: {training_params}")
@@ -122,7 +125,8 @@ class TrainingService:
                 job_id=job_id,
                 query_id=query_id,
                 model_name=request.model_name,
-                output_dir=output_path,
+                working_path=working_path,
+                output_path=output_path,
                 training_params=training_params
             )
             
@@ -319,26 +323,53 @@ class TrainingService:
 
     def get_output_path(self, request: TrainingRequest, job_id: str) -> Path:
         """
-        Get the full output path for the trained model.
+        Get the path where the zipped model artifact will be saved.
+        This is for artifact scanning and Compute Engine API download.
         
         Args:
             request: The training request
             job_id: The unique job ID
             
         Returns:
-            Path to the output directory
+            Path to the output zip file
         """
-        output_dir = request.output_dir or f"model_{job_id}"
-        full_path = self.settings.OUTPUT_DIR / output_dir
+        model_name = request.output_dir or f"model_{job_id}"
+        # Add .zip extension to the model output file
+        zip_name = f"{model_name}.zip"
+        output_path = self.settings.OUTPUT_DIR / zip_name
         
-        # Make sure the parent directory exists
+        # Make sure the output directory exists
         if not self.settings.OUTPUT_DIR.exists():
             logger.info(f"Creating output directory: {self.settings.OUTPUT_DIR}")
             self.settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
             
-        logger.debug(f"Output path for job {job_id}: {full_path}")
-        return full_path
+        logger.debug(f"Output zip path for job {job_id}: {output_path}")
+        return output_path
 
+    def get_working_path(self, request: TrainingRequest, job_id: str) -> Path:
+        """
+        Get the path where the model will be trained and saved during training.
+        This is the working version used for inference.
+        
+        Args:
+            request: The training request
+            job_id: The unique job ID
+            
+        Returns:
+            Path to the working directory for model files
+        """
+        model_name = request.output_dir or f"model_{job_id}"
+        working_path = self.settings.WORKING_DIR / model_name
+        
+        # Make sure the working directory exists
+        if not self.settings.WORKING_DIR.exists():
+            logger.info(f"Creating working directory: {self.settings.WORKING_DIR}")
+            self.settings.WORKING_DIR.mkdir(parents=True, exist_ok=True)
+            
+        logger.debug(f"Working path for job {job_id}: {working_path}")
+        return working_path
+
+    
     def get_training_parameters(self, request_params: Optional[TrainingParameters]) -> Dict[str, Any]:
         """
         Merge default and custom training parameters.
