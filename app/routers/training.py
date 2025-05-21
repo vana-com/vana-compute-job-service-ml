@@ -1,68 +1,175 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, status, Request
-from fastapi.responses import StreamingResponse, JSONResponse
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Request
+from fastapi.responses import StreamingResponse
+from typing import List, Dict, Any, Optional
 import os
-from pathlib import Path
 import json
 import logging
+from pathlib import Path
 
 from app.config import settings
 from app.ml.trainer import train_model
+from app.models.training import (
+    TrainingRequest, TrainingResponse, TrainingStatus, 
+    TrainingEvent, TrainingParameters
+)
 from app.utils.events import subscribe_to_training_events, format_sse_event, get_training_events
 from app.utils.query_engine_client import QueryEngineClient
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-class QueryParams(BaseModel):
-    """Parameters for a query to the database."""
-    compute_job_id: int
-    refiner_id: int
-    query: str
-    query_signature: str
-    params: Optional[List[Any]] = None
-
-class TrainingRequest(BaseModel):
-    """Training request model."""
-    model_name: Optional[str] = settings.DEFAULT_BASE_MODEL
-    output_dir: Optional[str] = None
-    training_params: Optional[Dict[str, Any]] = None
-    query_id: Optional[str] = None  # ID of an existing query
-    query_params: Optional[QueryParams] = None  # Parameters for a new query
+def validate_training_request(request: TrainingRequest) -> None:
+    """
+    Validate that the training request contains required data.
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "model_name": "meta-llama/Llama-2-7b-hf",
-                "output_dir": "my_finetuned_model",
-                "training_params": {
-                    "num_epochs": 3,
-                    "learning_rate": 2e-4,
-                    "batch_size": 4
-                },
-                "query_params": {
-                    "compute_job_id": 12,
-                    "refiner_id": 12,
-                    "query": "SELECT * FROM tweets WHERE user_id = ? ORDER BY created_at DESC LIMIT 100",
-                    "query_signature": "<signed query contents>",
-                    "params": ["user123"],
-                }
-            }
-        }
+    Args:
+        request: The training request to validate
+        
+    Raises:
+        HTTPException: If validation fails
+    """
+    if not request.query_id and not request.query_params:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either query_id or query_params must be provided"
+        )
 
-class TrainingResponse(BaseModel):
-    """Training response model."""
-    job_id: str
-    query_id: str
-    status: str
-    message: str
+def generate_job_id() -> str:
+    """
+    Generate a unique job ID for training.
+    
+    Returns:
+        A unique training job ID
+    """
+    return f"train_{os.urandom(4).hex()}"
+
+def get_output_path(request: TrainingRequest, job_id: str) -> Path:
+    """
+    Get the full output path for the trained model.
+    
+    Args:
+        request: The training request
+        job_id: The unique job ID
+        
+    Returns:
+        Path to the output directory
+    """
+    output_dir = request.output_dir or f"model_{job_id}"
+    return settings.OUTPUT_DIR / output_dir
+
+def get_training_parameters(request_params: Optional[TrainingParameters]) -> Dict[str, Any]:
+    """
+    Merge default and custom training parameters.
+    
+    Args:
+        request_params: Custom training parameters from the request
+        
+    Returns:
+        Dictionary of training parameters
+    """
+    # Start with default parameters
+    params = {
+        "num_epochs": settings.NUM_EPOCHS,
+        "learning_rate": settings.LEARNING_RATE,
+        "batch_size": settings.BATCH_SIZE,
+        "max_seq_length": settings.MAX_SEQ_LENGTH
+    }
+    
+    # Update with custom parameters if provided
+    if request_params:
+        params.update(request_params.dict())
+    
+    return params
+
+async def execute_new_query(request: TrainingRequest) -> str:
+    """
+    Execute a new query to get training data.
+    
+    Args:
+        request: The training request containing query parameters
+        
+    Returns:
+        The query ID
+        
+    Raises:
+        HTTPException: If query execution fails
+    """
+    if not request.query_params:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Query parameters are required but not provided"
+        )
+    
+    client = QueryEngineClient()
+    result = client.execute_query(
+        job_id=request.query_params.compute_job_id,
+        refiner_id=request.query_params.refiner_id,
+        query=request.query_params.query,
+        query_signature=request.query_params.query_signature,
+        results_dir=settings.WORKING_DIR,
+        params=request.query_params.params
+    )
+
+    if not result.success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to execute query: {result.error}"
+        )
+    
+    query_id = result.data.get("query_id")
+    if not query_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No query ID returned from query execution"
+        )
+    
+    return query_id
+
+def start_training_job(
+    background_tasks: BackgroundTasks,
+    job_id: str,
+    query_id: str,
+    model_name: str,
+    output_path: Path,
+    training_params: Dict[str, Any]
+) -> TrainingResponse:
+    """
+    Start a training job in the background.
+    
+    Args:
+        background_tasks: FastAPI background tasks
+        job_id: Unique job ID
+        query_id: ID of the query with training data
+        model_name: Model to fine-tune
+        output_path: Path to save the model
+        training_params: Training parameters
+        
+    Returns:
+        Training response with job information
+    """
+    # Start training in background
+    background_tasks.add_task(
+        train_model,
+        job_id=job_id,
+        query_id=query_id,
+        model_name=model_name,
+        output_dir=output_path,
+        training_params=training_params
+    )
+    
+    # Return response
+    return TrainingResponse(
+        job_id=job_id,
+        query_id=query_id,
+        status="started",
+        message=f"Training job started. Connect to /train/{job_id}/events for real-time updates."
+    )
 
 @router.post("", response_model=TrainingResponse, status_code=status.HTTP_202_ACCEPTED, name="train")
 async def train(
     request: TrainingRequest,
     background_tasks: BackgroundTasks
-):
+) -> TrainingResponse:
     """
     Start a training job to fine-tune a model using query results.
     
@@ -75,101 +182,65 @@ async def train(
     Either query_id or query_params must be provided to identify the data to use for training.
     
     Training progress can be monitored in real-time by connecting to the /train/{training_job_id}/events endpoint.
+    
+    Args:
+        request: Training request with model and data specifications
+        background_tasks: FastAPI background tasks for async processing
+        
+    Returns:
+        Training response with job information
+        
+    Raises:
+        HTTPException: If validation fails or training can't be started
     """
     try:
-        # Validate that either query_id or query_params is provided
-        if not request.query_id and not request.query_params:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Either query_id or query_params must be provided"
-            )
+        # Validate request
+        validate_training_request(request)
         
-        # Generate a unique job ID
-        training_job_id = f"train_{os.urandom(4).hex()}"
+        # Generate job ID and setup
+        job_id = generate_job_id()
+        output_path = get_output_path(request, job_id)
+        training_params = get_training_parameters(request.training_params)
         
-        # Set output directory
-        output_dir = request.output_dir or f"model_{training_job_id}"
-        full_output_path = settings.OUTPUT_DIR / output_dir
-        
-        # Merge default and custom training parameters
-        training_params = {
-            "num_epochs": settings.NUM_EPOCHS,
-            "learning_rate": settings.LEARNING_RATE,
-            "batch_size": settings.BATCH_SIZE,
-            "max_seq_length": settings.MAX_SEQ_LENGTH
-        }
-        if request.training_params:
-            training_params.update(request.training_params)
-        
+        # Use existing query ID or run a new query
         if request.query_id:
             logger.info(f"Training with existing query_id: {request.query_id}")
-
-            # Start training in background
-            background_tasks.add_task(
-                train_model,
-                job_id=training_job_id,
-                query_id=request.query_id,
-                model_name=request.model_name,
-                output_dir=full_output_path,
-                training_params=training_params
-            )
-            
-            return TrainingResponse(
-                job_id=training_job_id,
-                query_id=request.query_id,
-                status="started",
-                message=f"Training job started. Connect to /train/{training_job_id}/events for real-time updates."
-            )
-
-        client = QueryEngineClient()
-        result = client.execute_query(
-            job_id=request.query_params.compute_job_id,
-            refiner_id=request.query_params.refiner_id,
-            query=request.query_params.query,
-            query_signature=request.query_params.query_signature,
-            results_dir=settings.WORKING_DIR,
-            params=request.query_params.params
-        )
-
-        if not result.success:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to execute query: {result.error}"
-            )
+            query_id = request.query_id
+        else:
+            logger.info("Executing new query for training data")
+            query_id = await execute_new_query(request)
         
-        query_id = result.data.get("query_id")
-        if not query_id:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="No query ID returned from query execution"
-            )
-        
-        # Start training in background
-        background_tasks.add_task(
-            train_model,
-            job_id=training_job_id,
+        # Start the training job
+        return start_training_job(
+            background_tasks=background_tasks,
+            job_id=job_id,
             query_id=query_id,
             model_name=request.model_name,
-            output_dir=full_output_path,
+            output_path=output_path,
             training_params=training_params
         )
         
-        return TrainingResponse(
-            job_id=training_job_id,
-            query_id=query_id,
-            status="started",
-            message=f"Training job started. Connect to /train/{training_job_id}/events for real-time updates."
-        )
-        
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start training job: {str(e)}"
         )
 
-@router.get("/{training_job_id}", response_model=Dict[str, Any])
-async def get_training_status(training_job_id: str):
-    """Get the status of a training job."""
+def load_training_status(training_job_id: str) -> TrainingStatus:
+    """
+    Load the status of a training job from its status file.
+    
+    Args:
+        training_job_id: ID of the training job
+        
+    Returns:
+        Training status data
+        
+    Raises:
+        HTTPException: If status file doesn't exist or can't be loaded
+    """
     status_file = settings.WORKING_DIR / f"{training_job_id}_status.json"
     
     if not status_file.exists():
@@ -181,15 +252,61 @@ async def get_training_status(training_job_id: str):
     try:
         with open(status_file, "r") as f:
             status_data = json.load(f)
-        return status_data
+        return TrainingStatus(**status_data)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get training status: {str(e)}"
         )
 
+@router.get("/{training_job_id}", response_model=TrainingStatus)
+async def get_training_status(training_job_id: str) -> TrainingStatus:
+    """
+    Get the status of a training job.
+    
+    Args:
+        training_job_id: ID of the training job
+        
+    Returns:
+        Status of the training job
+        
+    Raises:
+        HTTPException: If job not found or status loading fails
+    """
+    return load_training_status(training_job_id)
+
+async def generate_sse_events(training_job_id: str, request: Request):
+    """
+    Generate Server-Sent Events (SSE) for a training job.
+    
+    Args:
+        training_job_id: ID of the training job
+        request: FastAPI request object
+        
+    Yields:
+        SSE formatted events
+    """
+    try:
+        # Send headers for SSE
+        yield "retry: 1000\n\n"
+        
+        # Stream events
+        async for event in subscribe_to_training_events(training_job_id):
+            yield format_sse_event(event)
+            
+            # Check if client disconnected
+            if await request.is_disconnected():
+                break
+    except Exception as e:
+        # Send error event
+        error_event = {
+            "type": "error",
+            "data": {"message": f"Error streaming events: {str(e)}"}
+        }
+        yield format_sse_event(error_event)
+
 @router.get("/{training_job_id}/events")
-async def stream_training_events(training_job_id: str, request: Request):
+async def stream_training_events(training_job_id: str, request: Request) -> StreamingResponse:
     """
     Stream training events for a job using Server-Sent Events (SSE).
     
@@ -201,6 +318,16 @@ async def stream_training_events(training_job_id: str, request: Request):
     - log: Log messages from the training process
     - complete: Sent when training is complete
     - error: Sent if an error occurs during training
+    
+    Args:
+        training_job_id: ID of the training job
+        request: FastAPI request object
+        
+    Returns:
+        Streaming response with SSE events
+        
+    Raises:
+        HTTPException: If job not found
     """
     # Check if the job exists
     status_file = settings.WORKING_DIR / f"{training_job_id}_status.json"
@@ -210,28 +337,8 @@ async def stream_training_events(training_job_id: str, request: Request):
             detail=f"Training job {training_job_id} not found"
         )
     
-    async def event_generator():
-        try:
-            # Send headers for SSE
-            yield "retry: 1000\n\n"
-            
-            # Stream events
-            async for event in subscribe_to_training_events(training_job_id):
-                yield format_sse_event(event)
-                
-                # Check if client disconnected
-                if await request.is_disconnected():
-                    break
-        except Exception as e:
-            # Send error event
-            error_event = {
-                "type": "error",
-                "data": {"message": f"Error streaming events: {str(e)}"}
-            }
-            yield format_sse_event(error_event)
-    
     return StreamingResponse(
-        event_generator(),
+        generate_sse_events(training_job_id, request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -240,13 +347,22 @@ async def stream_training_events(training_job_id: str, request: Request):
         }
     )
 
-@router.get("/{training_job_id}/events/history", response_model=List[Dict[str, Any]])
-async def get_training_event_history(training_job_id: str):
+@router.get("/{training_job_id}/events/history", response_model=List[TrainingEvent])
+async def get_training_event_history(training_job_id: str) -> List[TrainingEvent]:
     """
     Get the history of training events for a job.
     
     This endpoint returns all events that have been emitted for the training job,
     allowing clients to catch up on progress if they weren't connected from the start.
+    
+    Args:
+        training_job_id: ID of the training job
+        
+    Returns:
+        List of training events
+        
+    Raises:
+        HTTPException: If job not found
     """
     # Check if the job exists
     status_file = settings.WORKING_DIR / f"{training_job_id}_status.json"
@@ -257,4 +373,4 @@ async def get_training_event_history(training_job_id: str):
         )
     
     events = await get_training_events(training_job_id)
-    return events
+    return [TrainingEvent(**event) for event in events]
