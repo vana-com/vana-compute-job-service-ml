@@ -1,3 +1,30 @@
+"""
+Inference Service Module - Model management and inference capabilities.
+
+This module provides functionality for accessing models, generating completions,
+and managing model metadata.
+
+Examples:
+    Basic model listing:
+    
+    >>> from app.services.inference import InferenceService
+    >>> inference_service = InferenceService()
+    >>> models = inference_service.list_available_models()
+    >>> for model in models.data:
+    ...     print(f"Model: {model.id}, Base: {model.root}")
+    
+    Working with models:
+    
+    >>> model_path = inference_service.get_model_path("my_finetuned_model")
+    >>> metadata = inference_service.load_model_metadata(model_path)
+    >>> print(f"Model trained on: {metadata.get('created_at')}")
+    
+    Generation utilities:
+    
+    >>> completion_id = inference_service.generate_completion_id()
+    >>> timestamp = inference_service.get_current_timestamp()
+"""
+
 import uuid
 import time
 import json

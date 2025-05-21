@@ -1,3 +1,43 @@
+"""
+Training Service Module - Model fine-tuning and training job management.
+
+This module provides functionality for starting training jobs, monitoring
+their status, and retrieving training events and results.
+
+Examples:
+    Starting a training job:
+    
+    >>> from app.services.training import TrainingService
+    >>> from app.models.training import TrainingRequest, TrainingParameters
+    >>> from fastapi import BackgroundTasks
+    >>>
+    >>> training_service = TrainingService()
+    >>> background_tasks = BackgroundTasks()
+    >>>
+    >>> # Create request with existing query_id
+    >>> request = TrainingRequest(
+    ...     model_name="meta-llama/Llama-2-7b-hf",
+    ...     query_id="query_12345",
+    ...     training_params=TrainingParameters(num_epochs=3, batch_size=8)
+    ... )
+    >>>
+    >>> # Start training
+    >>> response = training_service.start_training_job(request, background_tasks)
+    >>> print(f"Job started: {response.job_id}")
+    
+    Monitoring job status:
+    
+    >>> status = training_service.get_training_job_status("train_abcd1234")
+    >>> print(f"Training status: {status.status}, Progress: {status.progress}%")
+    
+    Retrieving training events:
+    
+    >>> events = await training_service.get_training_events("train_abcd1234")
+    >>> for event in events:
+    ...     if event.type == "progress":
+    ...         print(f"Progress: {event.data.get('progress')}%")
+"""
+
 import os
 import json
 from pathlib import Path

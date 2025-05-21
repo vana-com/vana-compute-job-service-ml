@@ -1,3 +1,31 @@
+"""
+Health Service Module - System health checks and monitoring.
+
+This module provides health check functionality for the application,
+monitoring file systems, model availability, GPU status, and system resources.
+
+Examples:
+    Basic usage:
+    
+    >>> from app.services.health import HealthService
+    >>> health_service = HealthService()
+    >>> health_check = health_service.check_system_health()
+    >>> print(f"System status: {health_check.status}")  # "healthy" or "degraded"
+    
+    Check specific components:
+    
+    >>> file_systems = {"data": Path("/path/to/data")}
+    >>> status, file_system = health_service.check_file_system(file_systems)
+    >>> gpu_status = health_service.check_gpu()
+    >>> print(f"GPU available: {gpu_status.info.cuda_available}")
+    
+    Custom settings:
+    
+    >>> from app.config import Settings
+    >>> custom_settings = Settings(MODEL_DIR=Path("/custom/models"))
+    >>> health_service = HealthService(settings=custom_settings)
+"""
+
 from typing import Dict, Tuple
 from pathlib import Path
 import shutil
@@ -11,7 +39,6 @@ from app.models.health import (
     GPUInfo, GPUDevice, SystemStatus, DiskStatus, MemoryStatus, CPUStatus,
     ComponentStatus, HealthCheckResponse
 )
-
 
 class HealthService:
     """Service for system health checks."""
