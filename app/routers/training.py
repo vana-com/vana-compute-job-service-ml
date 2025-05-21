@@ -9,14 +9,11 @@ from app.models.training import (
     TrainingEvent
 )
 from app.utils.events import get_training_events
-from app.services.training import (
-    validate_training_request, generate_job_id, get_output_path,
-    get_training_parameters, execute_new_query, start_training_job,
-    load_training_status, generate_sse_events
-)
+from app.services import TrainingService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+training_service = TrainingService()
 
 @router.post("", response_model=TrainingResponse, status_code=status.HTTP_202_ACCEPTED, name="train")
 async def train(
@@ -46,40 +43,7 @@ async def train(
     Raises:
         HTTPException: If validation fails or training can't be started
     """
-    try:
-        # Validate request
-        validate_training_request(request)
-        
-        # Generate job ID and setup
-        job_id = generate_job_id()
-        output_path = get_output_path(request, job_id)
-        training_params = get_training_parameters(request.training_params)
-        
-        # Use existing query ID or run a new query
-        if request.query_id:
-            logger.info(f"Training with existing query_id: {request.query_id}")
-            query_id = request.query_id
-        else:
-            logger.info("Executing new query for training data")
-            query_id = await execute_new_query(request)
-        
-        # Start the training job
-        return start_training_job(
-            background_tasks=background_tasks,
-            job_id=job_id,
-            query_id=query_id,
-            model_name=request.model_name,
-            output_path=output_path,
-            training_params=training_params
-        )
-        
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start training job: {str(e)}"
-        )
+    return training_service.start_training_job(request, background_tasks)
 
 
 @router.get("/{training_job_id}", response_model=TrainingStatus)
@@ -96,7 +60,7 @@ async def get_training_status(training_job_id: str) -> TrainingStatus:
     Raises:
         HTTPException: If job not found or status loading fails
     """
-    return load_training_status(training_job_id)
+    return training_service.get_training_job_status(training_job_id)
 
 @router.get("/{training_job_id}/events")
 async def stream_training_events(training_job_id: str, request: Request) -> StreamingResponse:
@@ -131,7 +95,7 @@ async def stream_training_events(training_job_id: str, request: Request) -> Stre
         )
     
     return StreamingResponse(
-        generate_sse_events(training_job_id, request),
+        training_service.generate_sse_events(training_job_id, request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

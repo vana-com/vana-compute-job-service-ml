@@ -1,17 +1,13 @@
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
-from typing import List
 
-from app.config import settings
 from app.ml.inference import generate_chat_completion
 from app.models.openai import ChatCompletionRequest, ChatCompletionResponse
 from app.models.inference import ModelListResponse, ModelData
-from app.services.inference import (
-    get_model_path, generate_completion_id, get_current_timestamp,
-    create_model_data, generate_chat_completion
-)
+from app.services import InferenceService
 
 router = APIRouter()
+inference_service = InferenceService()
 
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
 async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompletionResponse:
@@ -29,11 +25,11 @@ async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompleti
     """
     try:
         # Check if model exists and get path
-        model_path = get_model_path(request.model)
+        model_path = inference_service.get_model_path(request.model)
         
         # Generate IDs and timestamps
-        completion_id = generate_completion_id()
-        created_timestamp = get_current_timestamp()
+        completion_id = inference_service.generate_completion_id()
+        created_timestamp = inference_service.get_current_timestamp()
         
         # If streaming is requested, use streaming response
         if request.stream:
@@ -86,17 +82,4 @@ async def list_models() -> ModelListResponse:
     Raises:
         HTTPException: If there's an error listing models
     """
-    try:
-        models_data: List[ModelData] = []
-        
-        for model_dir in settings.OUTPUT_DIR.glob("*"):
-            if model_dir.is_dir() and (model_dir / "config.json").exists():
-                models_data.append(create_model_data(model_dir))
-        
-        return ModelListResponse(data=models_data)
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list models: {str(e)}"
-        )
+    return inference_service.list_available_models()
