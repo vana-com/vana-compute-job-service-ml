@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     """Application settings."""
     
     # API settings
-    API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "Vana Inference Engine"
         
     # Model settings

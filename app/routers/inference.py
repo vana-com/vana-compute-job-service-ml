@@ -1,21 +1,13 @@
-from fastapi import APIRouter, HTTPException, status, Request, Depends
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 from typing import Dict, Any
 import time
 import json
 import uuid
 
-from config import settings
-from models.inference import generate_chat_completion
-from models.schemas import (
-    Message, 
-    ChatCompletionRequest, 
-    ChatCompletionResponse, 
-    ChatCompletionResponseChoice,
-    ChatCompletionResponseUsage,
-    ChatCompletionChunk,
-    ChatCompletionChunkChoice
-)
+from app.config import settings
+from app.ml.inference import generate_chat_completion
+from app.models.openai import ChatCompletionRequest
 
 router = APIRouter()
 

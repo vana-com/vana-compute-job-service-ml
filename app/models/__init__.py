@@ -1,1 +1,1 @@
-"""ML models package."""
+"""Package of all Pydantic data models"""

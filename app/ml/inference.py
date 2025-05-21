@@ -3,16 +3,15 @@ from pathlib import Path
 from typing import Generator, Union, List, Optional
 import torch
 import tiktoken
-from utils.devices import supported_dtype
+from app.utils.devices import supported_dtype
 
-# Import Unsloth for efficient inference
 from unsloth import FastLanguageModel
 from unsloth.chat_templates import get_chat_template
 from transformers import TextIteratorStreamer
 from threading import Thread
 
-from config import settings
-from models.schemas import (
+from app.config import settings
+from app.models.openai import (
     Message, 
     ChatCompletionResponse, 
     ChatCompletionResponseChoice, 

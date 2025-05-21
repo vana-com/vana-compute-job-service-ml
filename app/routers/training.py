@@ -7,11 +7,10 @@ from pathlib import Path
 import json
 import logging
 
-from config import settings
-from models.trainer import train_model
-from utils.db import get_training_data
-from utils.events import subscribe_to_training_events, format_sse_event, get_training_events
-from utils.query_engine_client import QueryEngineClient
+from app.config import settings
+from app.ml.trainer import train_model
+from app.utils.events import subscribe_to_training_events, format_sse_event, get_training_events
+from app.utils.query_engine_client import QueryEngineClient
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -59,7 +58,7 @@ class TrainingResponse(BaseModel):
     status: str
     message: str
 
-@router.post("/", response_model=TrainingResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post("", response_model=TrainingResponse, status_code=status.HTTP_202_ACCEPTED, name="train")
 async def train(
     request: TrainingRequest,
     background_tasks: BackgroundTasks

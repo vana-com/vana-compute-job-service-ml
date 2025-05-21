@@ -1,4 +1,3 @@
-import os
 import time
 import json
 import logging
@@ -14,10 +13,10 @@ from datasets import Dataset
 from transformers import TrainerCallback
 from trl import SFTTrainer, SFTConfig
 
-from config import settings
-from utils.db import get_training_data, format_training_examples, save_training_status
-from utils.events import add_training_event
-from utils.devices import supported_dtype
+from app.config import settings
+from app.utils.db import get_training_data, format_training_examples, save_training_status
+from app.utils.events import add_training_event
+from app.utils.devices import supported_dtype
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
