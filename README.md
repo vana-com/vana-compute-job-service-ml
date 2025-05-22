@@ -58,14 +58,16 @@ Key features:
 │   │   ├── inference.py            # Model loading and text generation
 │   │   └── trainer.py              # Model training and fine-tuning with Unsloth
 │   ├── models/                     # Data models and schemas
+│   │   ├── health.py               # System health schemas
 │   │   ├── inference.py            # Inference request/response schemas
 │   │   ├── openai.py               # OpenAI-compatible API schemas
 │   │   └── training.py             # Training job schemas
 │   ├── routers/                    # API routes and endpoints
-│   │   ├── health.py               # Health check endpoints
+│   │   ├── health.py               # System health check endpoints
 │   │   ├── inference.py            # Inference API endpoints
 │   │   └── training.py             # Training API endpoints
 │   ├── services/                   # Business logic implementation
+│   │   ├── health.py               # System health service logic
 │   │   ├── inference.py            # Inference service logic
 │   │   └── training.py             # Training service logic
 │   └── utils/                      # Utility functions
