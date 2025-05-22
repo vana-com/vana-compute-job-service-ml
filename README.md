@@ -1,4 +1,4 @@
-# Vana Long-Running Compute Job Template (ML Training + Inference)
+# Vana ML Service Compute Job Template (Training & Inference)
 
 [![Join our Discord](https://img.shields.io/badge/Discord-Join%20Community-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://t.co/VkqwlJZ4ph)
 [![Documentation](https://img.shields.io/badge/Docs-Read%20More-0088CC?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.vana.org/docs/home)
@@ -603,16 +603,49 @@ To deploy your service job:
    ./scripts/image-build.sh
    ./scripts/image-export.sh
    ```
+   
+   The export script will automatically compress the image and calculate its SHA256 hash. You'll need this hash for on-chain registration.
+   > **Note**: When using the hash for on-chain registration, you must prefix it with `0x`.
 
-2. Compress and upload the image:
-   ```bash
-   gzip image-name.tar
-   sha256sum image-name.tar.gz
-   # Upload to a publicly accessible URL
-   ```
+2. Upload the image to a publicly accessible URL (e.g., HTTPS storage, S3, or IPFS).
 
-3. Register the Compute Instruction on-chain with the image URL and hash
+3. Register the Compute Instruction on-chain by calling the `addComputeInstruction` function:
+   - [Testnet addComputeInstruction](https://moksha.vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy&source_address=0x388E3b7cAD1ff4E69d70DA820b5095FdF4c98C8b#0x248e02a6)
+   - [Mainnet addComputeInstruction](https://vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy&source_address=0x388E3b7cAD1ff4E69d70DA820b5095FdF4c98C8b#0x248e02a6)
+   
+   Parameters:
+   - `url`: The publicly accessible URL where you uploaded the image
+   - `hash`: The SHA256 hash from step 1 (prefixed with `0x`)
+   
+   After the transaction is complete, check the transaction logs to retrieve the instruction ID that was created. You'll need this ID for the next step.
 
-4. Get approval from the DLP owner
+4. Get approval from the DLP owner. The DLP owner must call the `updateComputeInstruction` function to approve your instruction for their DLP:
+   - [Testnet updateComputeInstruction](https://moksha.vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy&source_address=0x388E3b7cAD1ff4E69d70DA820b5095FdF4c98C8b#0x79fd41f6)
+   - [Mainnet updateComputeInstruction](https://vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy&source_address=0x388E3b7cAD1ff4E69d70DA820b5095FdF4c98C8b#0x79fd41f6)
+   
+   Parameters:
+   - `instructionId`: The instruction ID from step 3
+   - `dlpId`: The ID of the DLP with the data you want to access
+   - `approved`: Set to `true` to approve the instruction
 
-5. Register and submit the Compute Job for execution through the Compute Engine
+5. Register the job on-chain. For long-running service jobs like this, use the `submitJobWithTee` function to assign it to a dedicated instance:
+   - [Testnet submitJobWithTee](https://moksha.vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy&source_address=0x1Eb8bb29B9FFAD034b7036cFFb8FA7Be2B01182a#0xabc7728d)
+   - [Mainnet submitJobWithTee](https://vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy&source_address=0x1Eb8bb29B9FFAD034b7036cFFb8FA7Be2B01182a#0xabc7728d)
+   
+   Parameters:
+   - `maxTimeout`: Timeout in seconds. For long-running services, use `1208925819614629174706175` (maximum value)
+   - `gpuRequired`: True / false to specify whether the compute job needs GPU access or not.
+   - `computeInstructionId`: The instruction ID from step 3
+   - `teeAddress`: The address of the TEE you want to use
+   
+   > **Note**: Each TEE has a configured amount of GPUs that may be assignable to jobs. Once these are exhausted, new job submissions will fail.
+   
+   Alternatively, for shorter jobs that don't need a dedicated TEE, you can use the `submitJob` function:
+   - [Testnet submitJob](https://moksha.vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy&source_address=0x1Eb8bb29B9FFAD034b7036cFFb8FA7Be2B01182a#0xe158711b)
+   - [Mainnet submitJob](https://vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy)
+   
+   After submitting the job, check the transaction logs to retrieve the job ID. You'll need this ID for the next step. You can query the job info with the `jobs` function to see which TEE pool contract and TEE address it was assigned to.
+
+6. Submit the job through the Compute Engine API. You must submit the job to the same TEE that was assigned in step 5
+   
+   > **Important**: If you submit the job to a different TEE than the one it was assigned to in step 5, the submission will be rejected.
