@@ -1,48 +1,44 @@
-from fastapi import APIRouter, HTTPException, status, Request, Depends
-from fastapi.responses import StreamingResponse, JSONResponse
-from typing import Dict, Any
-import time
-import json
-import uuid
+from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
+import logging
 
-from config import settings
-from models.inference import generate_chat_completion
-from models.schemas import (
-    Message, 
-    ChatCompletionRequest, 
-    ChatCompletionResponse, 
-    ChatCompletionResponseChoice,
-    ChatCompletionResponseUsage,
-    ChatCompletionChunk,
-    ChatCompletionChunkChoice
-)
+from app.ml.inference import generate_chat_completion
+from app.models.openai import ChatCompletionRequest, ChatCompletionResponse
+from app.models.inference import ModelListResponse, ModelData
+from app.services import InferenceService
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+inference_service = InferenceService()
 
-@router.post("/chat/completions")
-async def create_chat_completion(request: ChatCompletionRequest):
+@router.post("/chat/completions", response_model=ChatCompletionResponse)
+async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompletionResponse:
     """
     Create a chat completion following the OpenAI API specification.
     
-    This endpoint mimics the behavior of OpenAI's /v1/chat/completions endpoint.
+    Args:
+        request: The chat completion request containing messages and parameters
+    
+    Returns:
+        Either a streaming response or a JSON response with the completion
+        
+    Raises:
+        HTTPException: If model is not found or completion fails
     """
     try:
-        # Check if model exists
-        model_path = settings.OUTPUT_DIR / request.model
-        if not model_path.exists():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Model not found: {request.model}"
-            )
+        # Check if model exists and get path
+        model_path = inference_service.get_model_path(request.model)
         
-        # Generate a unique ID for this completion
-        completion_id = f"chatcmpl-{uuid.uuid4().hex}"
-        created_timestamp = int(time.time())
+        # Generate IDs and timestamps
+        completion_id = inference_service.generate_completion_id()
+        created_timestamp = inference_service.get_current_timestamp()
         
         # If streaming is requested, use streaming response
         if request.stream:
+            # For streaming, return a streaming response
+            logger.info(f"Streaming chat completion for model {request.model}")
             return StreamingResponse(
-                generate_chat_completion(
+                await generate_chat_completion(
                     model_path=model_path,
                     messages=request.messages,
                     temperature=request.temperature,
@@ -70,46 +66,42 @@ async def create_chat_completion(request: ChatCompletionRequest):
         )
         
         return result
-        
+    except FileNotFoundError as e:
+        # Model not found
+        error_msg = f"Model '{request.model}' not found: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error_msg
+        )
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
+        error_msg = f"Error generating chat completion with model '{request.model}': {str(e)}"
+        logger.error(error_msg)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chat completion failed: {str(e)}"
+            detail=error_msg
         )
 
-@router.get("/models", response_model=Dict[str, Any])
-async def list_models():
-    """List all available models in OpenAI format."""
-    try:
-        models_data = []
-        for model_dir in settings.OUTPUT_DIR.glob("*"):
-            if model_dir.is_dir() and (model_dir / "config.json").exists():
-                # Get model metadata if available
-                metadata_file = model_dir / "metadata.json"
-                metadata = {}
-                if metadata_file.exists():
-                    with open(metadata_file, "r") as f:
-                        metadata = json.load(f)
-                
-                # Format in OpenAI style
-                models_data.append({
-                    "id": model_dir.name,
-                    "object": "model",
-                    "created": int(time.mktime(time.strptime(metadata.get("created_at", "2023-01-01T00:00:00"), "%Y-%m-%dT%H:%M:%S.%f"))) if "created_at" in metadata else int(time.time()),
-                    "owned_by": "vana",
-                    "permission": [],
-                    "root": metadata.get("base_model", "unknown"),
-                    "parent": None
-                })
+@router.get("/models", response_model=ModelListResponse)
+async def list_models() -> ModelListResponse:
+    """
+    List all available models in OpenAI format.
+    
+    Returns:
+        ModelListResponse containing a list of available models
         
-        return {
-            "object": "list",
-            "data": models_data
-        }
+    Raises:
+        HTTPException: If there's an error listing models
+    """
+    try:
+        logger.info("Listing available models")
+        return inference_service.list_available_models()
     except Exception as e:
+        error_msg = f"Error listing models: {str(e)}"
+        logger.error(error_msg)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list models: {str(e)}"
+            detail=error_msg
         )

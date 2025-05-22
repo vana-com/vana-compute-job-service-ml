@@ -1,344 +1,651 @@
-# Vana Inference Engine
+# Vana ML Service Compute Job Template (Training & Inference)
 
-A FastAPI-based inference/training engine for Vana using Poetry and Unsloth.
+[![Join our Discord](https://img.shields.io/badge/Discord-Join%20Community-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://t.co/VkqwlJZ4ph)
+[![Documentation](https://img.shields.io/badge/Docs-Read%20More-0088CC?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.vana.org/docs/home)
+[![Website](https://img.shields.io/badge/Website-Visit%20Us-00ADEF?style=for-the-badge&logo=internetexplorer&logoColor=white)](https://www.vana.org/)
+[![X (Twitter)](https://img.shields.io/badge/Twitter-Follow%20Us-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/vana)
+
+<details>
+<summary>Table of Contents</summary>
+
+- [Overview](#overview)
+- [Project Structure](#project-structure)
+- [How It Works](#how-it-works)
+- [System Prerequisites](#system-prerequisites)
+- [Local Development](#local-development)
+  - [Using Docker (Recommended)](#using-docker-recommended)
+  - [Using FastAPI Directly (Limited Support)](#using-fastapi-directly-limited-support)
+- [Using the Service Job](#using-the-service-job)
+  - [Submitting a Long-Running Service Job](#1-submitting-a-long-running-service-job)
+  - [Querying Job Status and Artifacts](#2-querying-job-status-and-artifacts)
+  - [Interacting with the Service Job API](#3-interacting-with-the-service-job-api)
+  - [Debugging Jobs](#4-debugging-jobs)
+  - [Cancelling Jobs](#5-cancelling-jobs)
+- [Smart Contracts](#smart-contracts)
+- [Customizing Query Result Processing](#customizing-query-result-processing)
+- [Complete Examples](#complete-examples)
+  - [Training Workflow Example](#training-workflow-example)
+  - [Inference Workflow Example](#inference-workflow-example)
+- [API Reference](#api-reference)
+  - [Service Job Endpoints](#service-job-endpoints)
+  - [Compute Engine Endpoints](#compute-engine-endpoints)
+- [Deployment](#deployment)
+
+</details>
+<br/>
+A FastAPI-based service for running long-lived training and inference jobs within the Vana Compute Engine.
 
 ## Overview
 
-This project implements a long-running compute service for training and inference of language models. It provides two main endpoints:
+This template implements a long-running compute service for training and inference of language models. It's designed to run inside the Vana Compute Engine as a containerized service job, exposing endpoints through the compute engine's proxy.
 
-1. `/train` - For training and fine-tuning language models using query results
-2. `/chat/completions` - OpenAI-compatible API for chat completions
-
-The application is designed to run as a long-running service inside a TEE (Trusted Execution Environment) and communicate with the Compute Engine via HTTP.
-
-## Features
-
+Key features:
 - **OpenAI-Compatible API**: Drop-in replacement for OpenAI's chat completions API
-- **Query-Based Training**: Train models using the results of specific queries
-- **Real-time Training Progress**: Monitor training progress in real-time using Server-Sent Events (SSE)
-- **FastAPI Backend**: Provides a robust API for training and inference
-- **Unsloth Integration**: Efficient fine-tuning of language models
-- **Poetry Dependency Management**: Clean and reproducible dependency management
-- **Background Training Jobs**: Long-running training jobs that don't block the API
-- **Streaming Inference**: Support for streaming text generation responses
-- **Model Management**: List and manage fine-tuned models
+- **Query-Based Training**: Train models using the results of database queries against the Vana Query Engine
+- **Real-time Training Progress**: Monitor training progress via Server-Sent Events
+- **Permissioned Infrastructure**: Works inside the Vana Compute Engine secure TEE infrastructure
+- **Efficient Training**: Uses Unsloth for optimized fine-tuning of language models
 
-## Directory Structure
+## Project Structure
 
 ```
-app/                    # Application code
-├── config.py           # Application configuration
-├── main.py             # FastAPI application entry point
-├── models/             # ML model implementations
-│   ├── inference.py    # Text generation using fine-tuned models
-│   └── trainer.py      # Model training using Unsloth
-├── routers/            # API route definitions
-│   ├── inference.py    # Inference API endpoints (OpenAI-compatible)
-│   └── training.py     # Training API endpoints
-└── utils/              # Utility functions
-    ├── db.py           # Database operations
-    └── events.py       # Event handling for SSE
-scripts/
-  |── image-build.sh    # Build the Docker image
-  |── image-run.sh      # Run the Docker image
-  |── image-export.sh   # Export the Docker image to `.tar` file. (gzip + sha256 manually)
+├── Dockerfile                      # Container definition for the service
+├── README.md                       # Documentation
+├── app/                            # Main application code
+│   ├── config.py                   # Configuration and environment settings
+│   ├── main.py                     # FastAPI application entry point
+│   ├── ml/                         # Machine learning implementation
+│   │   ├── inference.py            # Model loading and text generation
+│   │   └── trainer.py              # Model training and fine-tuning with Unsloth
+│   ├── models/                     # Data models and schemas
+│   │   ├── inference.py            # Inference request/response schemas
+│   │   ├── openai.py               # OpenAI-compatible API schemas
+│   │   └── training.py             # Training job schemas
+│   ├── routers/                    # API routes and endpoints
+│   │   ├── health.py               # Health check endpoints
+│   │   ├── inference.py            # Inference API endpoints
+│   │   └── training.py             # Training API endpoints
+│   ├── services/                   # Business logic implementation
+│   │   ├── inference.py            # Inference service logic
+│   │   └── training.py             # Training service logic
+│   └── utils/                      # Utility functions
+│       ├── db.py                   # Database and query result processing
+│       ├── devices.py              # GPU/hardware detection and setup
+│       ├── events.py               # Server-Sent Events (SSE) handling
+│       └── query_engine_client.py  # Client for Vana Query Engine
+├── pyproject.toml                  # Python dependencies and project metadata
+└── scripts/                        # Deployment and development scripts
+    ├── image-build.sh              # Build Docker image with TEE compatibility
+    ├── image-export.sh             # Export Docker image for deployment
+    └── image-run.sh                # Run Docker image locally for testing
 ```
 
-## Data Flow
+## How It Works
 
-1. The application receives a training request with query parameters or a query ID
-2. The application submits queries to the Query Engine.
-  a. An existing query id can be supplied instead for query result reuse.
-3. Input data is downloaded from the Query Engine API to the `WORKING_PATH` directory as `<query_id>.db`.
-4. The application processes this data for training or uses it for inference.
-5. Output models and artifacts are saved to the `OUTPUT_PATH` directory.
-  a. Artifacts are scanned periodically and provided via the Compute Engine API for download. Created artifacts can be listed through the job status endpoint.
-6. Working files and model caches are stored in the `WORKING_PATH` directory.
+When deployed, this service:
+1. Runs as a containerized job within the Vana Compute Engine
+2. Provides training and inference capabilities through proxied endpoints
+3. Stores artifacts (trained models, logs) that can be accessed through the Compute Engine REST API
+4. Maintains its state for as long as the service job runs
 
-## Quick Start
+## System Prerequisites
+
+- **CUDA Support**: This job requires CUDA-compatible GPUs. It's optimized for:
+  - CUDA 12.4 or compatible
+  - Compatible with PyTorch 2.6.0+cu124
+  - Tested on NVIDIA T4, H200 and similar GPU architectures
+- **Docker**: Required for building and running the containerized service
+- **Python** (optional): Version 3.10 or higher for local development without Docker
+- **Poetry** (optional): For local development without Docker
+
+If you need to run on different hardware, you'll need to modify:
+- Dependencies in `pyproject.toml` to match your CUDA version
+- Potentially update model loading code for different hardware constraints
+
+## Local Development
+
+There are two ways to run the service locally on compatible machines:
+
+### Using Docker (Recommended)
+
+The Docker approach is the same method used in production and is the most reliable way to test your service:
 
 1. Build the Docker image:
    ```bash
    ./scripts/image-build.sh
    ```
+   
+   This builds the image with TEE (AMD) compatibility for running in secure environments, ensuring the same environment as the production Vana Compute Engine.
 
-2. Run the container:
+2. Run the container locally:
    ```bash
    ./scripts/image-run.sh
    ```
+   
+   This script mounts the necessary directories, allocates all GPUs, and exposes port 8000 to interact with the service.
 
-3. Access the API at http://localhost:8000
+3. Access the service at `http://localhost:8000`
 
-4. Export the Docker image for deployment:
+### Using FastAPI Directly (Limited Support)
+
+For quick iterations during development, you can run the service directly with FastAPI and uvicorn on compatible machines:
+
+1. Set env variables (`OUTPUT_PATH`, `WORKING_PATH`, `PORT=8000`)
+
+2. Install dependencies:
    ```bash
-   ./scripts/image-export.sh
+   poetry install
    ```
 
-## API Endpoints
+3. Run the FastAPI application:
+   ```bash
+   poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
 
-### OpenAI-Compatible Chat Completions
+> **Note**: This method has limited support and may not fully replicate the containerized environment. Some features related to filesystem access or GPU integration might behave differently. Always test the final version using Docker before deployment.
 
-- `POST /chat/completions`: Generate chat completions (OpenAI-compatible)
-  ```json
-  {
-    "model": "my_finetuned_model",
-    "messages": [
-      {"role": "system", "content": "You are a helpful assistant."},
-      {"role": "user", "content": "What is machine learning?"}
-    ],
-    "temperature": 0.7,
-    "max_tokens": 512,
-    "stream": false
-  }
-  ```
+## Using the Service Job
 
-- `GET /models`: List all available models (OpenAI-compatible)
+### 1. Submitting a Long-Running Service Job
 
-### Training
+To submit a service job, you need to:
 
-- `POST /train`: Start a training job using query results
-  ```json
-  {
-    "model_name": "meta-llama/Llama-2-7b-hf",
-    "output_dir": "my_finetuned_model",
-    "training_params": {
-      "num_epochs": 3,
-      "learning_rate": 2e-4,
-      "batch_size": 4
-    },
-    "query_params": {
-      "compute_job_id": 12,
-      "refiner_id": 12,
-      "query": "SELECT * FROM tweets WHERE user_id = ? ORDER BY created_at DESC LIMIT 100",
-      "query_signature": "<signed query contents>",
-      "params": ["user123"]
-    }
-  }
-  ```
+1. Register the job on-chain through the Compute Engine smart contract
+2. Submit the job to the Compute Engine API with the appropriate parameters
 
-- `GET /train/{training_job_id}`: Get the status of a training job
-
-- `GET /train/{training_job_id}/events`: Stream training events in real-time using SSE
-
-- `GET /train/{training_job_id}/events/history`: Get the history of training events
-
-## OpenAI API Compatibility
-
-The inference API is designed to be compatible with OpenAI's API, allowing you to use it as a drop-in replacement for applications built with the OpenAI SDK:
-
-### Python Example
+**Example: Submitting a job to the Compute Engine**
 
 ```python
-import openai
+import requests
+from eth_account import Account
+from eth_account.messages import encode_defunct
 
-# Configure the client to use your Vana Inference Engine
-client = openai.OpenAI(
-    base_url="http://localhost:8000",  # Your Vana Inference Engine URL
-    api_key="dummy-key"  # Not used but required by the client
-)
+# Configuration
+JOB_ID = "4976"  # Job ID from the smart contract
+COMPUTE_ENGINE_URL = "http://compute-engine-url"
+PRIVATE_KEY = "your_private_key"  # Private key for signing
 
-# Use the same API as you would with OpenAI
-response = client.chat.completions.create(
-    model="my_finetuned_model",  # Your fine-tuned model name
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "What is machine learning?"}
-    ],
-    temperature=0.7,
-    max_tokens=512
-)
+def sign_message(message, private_key):
+    """Sign a message using the provided private key."""
+    account = Account.from_key(private_key)
+    message_hash = encode_defunct(text=message)
+    signed_message = account.sign_message(message_hash)
+    return signed_message.signature.hex()
 
-print(response.choices[0].message.content)
-```
-
-### JavaScript Example
-
-```javascript
-import OpenAI from 'openai';
-
-// Configure the client to use your Vana Inference Engine
-const openai = new OpenAI({
-  baseURL: 'http://localhost:8000',  // Your Vana Inference Engine URL
-  apiKey: 'dummy-key'  // Not used but required by the client
-});
-
-// Use the same API as you would with OpenAI
-async function main() {
-  const response = await openai.chat.completions.create({
-    model: 'my_finetuned_model',  // Your fine-tuned model name
-    messages: [
-      { role: 'system', content: 'You are a helpful assistant.' },
-      { role: 'user', content: 'What is machine learning?' }
-    ],
-    temperature: 0.7,
-    max_tokens: 512
-  });
-
-  console.log(response.choices[0].message.content);
+# Set up headers with job signature for authentication
+headers = {
+    "X-Job-ID-Signature": sign_message(JOB_ID, PRIVATE_KEY),
+    "Content-Type": "application/json"
 }
 
-main();
+# Job creation request
+job_request = {
+    "input": {
+        "refiner_id": 1,
+        "query": "SELECT * FROM your_table",
+        "query_signature": sign_message("SELECT * FROM your_table", PRIVATE_KEY),
+        "params": []
+    }
+}
+
+# Submit the job
+response = requests.post(
+    f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}",
+    headers=headers,
+    json=job_request
+)
+
+print(f"Job submission response: {response.json()}")
 ```
 
-## Query-Based Training
+> **IMPORTANT**: The `X-Job-ID-Signature` header containing the relevant job id signed with the job owner's wallet is required for all Compute Engine endpoints. Only the job owner can access these endpoints, as the signature proves ownership of the job's associated wallet.
 
-The training process uses the results of queries to the Query Engine:
+### 2. Querying Job Status and Artifacts
 
-1. **Query Specification**: You can specify a query in two ways:
-   - Provide a `query_id` for an existing query
-   - Provide `query_params` to execute a new query
+Once a job is running, you can check its status and retrieve any artifacts it produces:
 
-2. **Query Parameters**:
-   - `query`: The SQL query to execute
-   - `params`: Parameters for the query
-   - `refiner_id`: ID of the data refiner
-   - `query_signature`: Signature for query authentication
+```python
+# Get job status
+status_response = requests.get(
+    f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}",
+    headers=headers
+)
 
-3. **Data Processing**:
-   - The query results are stored in the input database
-   - The training process extracts and formats this data for fine-tuning
-   - The model is trained on the formatted examples
+job_result = status_response.json()
+print(f"Job status: {job_result['status']}")
 
-## Real-time Training Progress
+# List artifacts
+if 'artifacts' in job_result:
+    for artifact in job_result['artifacts']:
+        print(f"Artifact: {artifact['id']} - {artifact['name']}")
+        
+        # Download an artifact
+        artifact_response = requests.get(
+            f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/artifacts/{artifact['id']}",
+            headers=headers
+        )
+        
+        if artifact_response.status_code == 200:
+            with open(artifact['name'], 'wb') as f:
+                f.write(artifact_response.content)
+            print(f"Downloaded artifact to {artifact['name']}")
+```
 
-The application provides real-time updates on training progress using Server-Sent Events (SSE):
+> **Note**: Trained models are stored in `{WORKING_PATH}/models` within the container, and model artifacts are exported as zip files to `{OUTPUT_PATH}/<model_name>.zip`. The Compute Engine periodically scans for new artifacts and makes them available through the job status endpoint.
 
-1. **Event Types**:
-   - `init`: Initial event with job information
-   - `status`: Status updates during different phases of training
-   - `progress`: Regular progress updates during training
-   - `log`: Log messages from the training process
-   - `complete`: Sent when training is complete
-   - `error`: Sent if an error occurs during training
+### 3. Interacting with the Service Job API
 
-2. **Monitoring Progress**:
-   - Connect to `/train/{training_job_id}/events` to receive real-time updates
-   - Use `/train/{training_job_id}/events/history` to get all past events
+The service job exposes its own API endpoints that can be accessed through the Compute Engine's proxy:
 
-## Environment Variables
+#### Training a Model
 
-- `OUTPUT_PATH`: Path to the output directory (default: `/mnt/output`)
-- `WORKING_PATH`: Path to the working directory (default: `/mnt/working`)
-- `PORT`: Port to run the FastAPI server on (default: `8000`)
-
-## Deployment
-
-For deployment in a TEE environment, follow these steps:
-
-1. Build and export the Docker image:
-   ```bash
-   ./image-build.sh
-   ./image-export.sh
-   ```
-
-2. Compress the image:
-   ```bash
-   gzip vana-inference.tar
-   ```
-
-3. Calculate the SHA256 checksum:
-   ```bash
-   sha256sum vana-inference.tar.gz | cut -d' ' -f1
-   ```
-
-4. Upload the image to a publicly accessible URL
-
-5. Register the Compute Instruction on-chain with the image URL and SHA256 checksum
-
-6. Get approval from the DLP owner
-
-7. Register and submit the Compute Job for execution
-
-## Model Setup and Management
-
-### Model Placement for Docker Setup
-
-When running the application using Docker, models are managed through three mounted directories:
-
-1. **Input Directory** (`./input` → `/mnt/input`): Contains input data such as query results used for training.
-2. **Output Directory** (`./output` → `/mnt/output`): Stores trained and fine-tuned models that can be used for inference.
-3. **Working Directory** (`./working` → `/mnt/working`): Contains temporary files and model caches used during training.
-
-To set up models for inference:
-
-1. Place your pre-trained models in the `./output` directory on your host machine. Each model should be in its own subdirectory.
-2. The directory structure should be:
-   ```
-   ./output/
-   ├── model_name_1/
-   │   ├── config.json
-   │   ├── tokenizer.json
-   │   ├── model.safetensors
-   │   └── metadata.json (optional)
-   ├── model_name_2/
-   │   └── ...
-   ```
-
-3. When running the Docker container, these models will be accessible at `/mnt/output` inside the container.
-
-### Setting Up Models for Inference
-
-There are two ways to set up models for inference:
-
-#### 1. Using the Training API
-
-The easiest way to set up a model is to train it using the `/train` endpoint:
-
-```bash
-curl -X POST http://localhost:8000/train \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_name": "meta-llama/Llama-2-7b-hf",
-    "output_dir": "my_custom_model",
+```python
+# Start a training job
+train_payload = {
+    "model_name": "meta-llama/Llama-2-7b-hf",  # Base model for fine-tuning
+    "output_dir": "user_data_model",  # Your trained model name
     "training_params": {
-      "num_epochs": 3,
-      "learning_rate": 2e-4,
-      "batch_size": 4
+        "num_epochs": 3,
+        "learning_rate": 2e-4,
+        "batch_size": 4
     },
     "query_params": {
-      "query": "SELECT * FROM your_data_table",
-      "params": []
+        "compute_job_id": JOB_ID,
+        "refiner_id": 1,
+        "query": "SELECT * FROM your_training_data",
+        "query_signature": sign_message("SELECT * FROM your_training_data", PRIVATE_KEY),
+        "params": []
     }
-  }'
+}
+
+train_response = requests.post(
+    f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/train/",
+    headers=headers,
+    json=train_payload
+)
+
+training_job = train_response.json()
+training_job_id = training_job['job_id']
+print(f"Training job started: {training_job_id}")
 ```
 
-This will:
-- Download the base model (if not already cached)
-- Train it using the provided query data
-- Save the fine-tuned model to `/mnt/output/my_custom_model`
+#### Monitoring Training Progress
 
-#### 2. Manually Copying Pre-trained Models
+You can monitor training progress in real-time using Server-Sent Events (SSE):
 
-You can also manually copy pre-trained models to the `./output` directory:
+```python
+import sseclient
 
-1. Create a subdirectory with your model name in the `./output` directory
-2. Copy all model files (config.json, tokenizer.json, model.safetensors, etc.) to this directory
-3. Optionally, create a `metadata.json` file with information about the model
+# Connect to SSE endpoint for real-time training updates
+sse_url = f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/train/{training_job_id}/events"
+sse_response = requests.get(sse_url, headers=headers, stream=True)
+client = sseclient.SSEClient(sse_response)
 
-### Using Models for Inference
+for event in client.events():
+    print(f"Training update: {event.data}")
+```
 
-Once a model is available in the output directory, you can use it for inference via the OpenAI-compatible API:
+#### Using the Trained Model for Inference
 
-```bash
-curl -X POST http://localhost:8000/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "my_custom_model",
+```python
+# Generate text using a trained model
+inference_payload = {
+    "model": "my_finetuned_model",
     "messages": [
-      {"role": "system", "content": "You are a helpful assistant."},
-      {"role": "user", "content": "What is machine learning?"}
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What insights can you provide from my data?"}
     ],
     "temperature": 0.7,
     "max_tokens": 512
-  }'
+}
+
+inference_response = requests.post(
+    f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/inference/chat/completions",
+    headers=headers,
+    json=inference_payload
+)
+
+result = inference_response.json()
+print(f"Generated text: {result['choices'][0]['message']['content']}")
 ```
 
-### Listing Available Models
+### 4. Debugging Jobs
 
-To see all available models:
+Several tools are available for debugging your service jobs:
 
-```bash
-curl http://localhost:8000/models
+#### Streaming Container Logs
+
+```python
+# Stream logs from the container
+logs_response = requests.get(
+    f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/logs",
+    headers=headers,
+    stream=True
+)
+
+for line in logs_response.iter_lines():
+    if line:
+        print(line.decode('utf-8'))
 ```
 
-This will return a list of all models in the `/mnt/output` directory that have a valid `config.json` file.
+#### Using OpenAPI Documentation
+
+Both the Compute Engine and your service job expose OpenAPI documentation:
+
+- Compute Engine API docs: `{COMPUTE_ENGINE_URL}/docs` or `{COMPUTE_ENGINE_URL}/redoc`
+- Service Job API docs: `{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/docs` or `{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/redoc`
+- Raw OpenAPI schema: `{COMPUTE_ENGINE_URL}/openapi.json` or `{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/openapi.json`
+
+These interactive documentation pages allow you to explore all available endpoints.
+
+#### Training Event History
+
+For training jobs, you can retrieve the history of all training events:
+
+```python
+# Get training event history
+events_response = requests.get(
+    f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/train/{training_job_id}/events/history",
+    headers=headers
+)
+
+events = events_response.json()
+for event in events:
+    print(f"Event type: {event['type']}, data: {event['data']}")
+```
+
+### 5. Cancelling Jobs
+
+To cancel a running job, you can call the `cancelJob` method on the Compute Engine smart contract:
+
+```javascript
+// Solidity contract interaction example (web3.js)
+const computeEngineContract = new web3.eth.Contract(
+    ComputeEngineABI,
+    COMPUTE_ENGINE_ADDRESS
+);
+
+// Cancel the job
+await computeEngineContract.methods.cancelJob(JOB_ID).send({
+    from: userAddress,
+    gas: 200000
+});
+```
+
+For Python applications, you can use web3.py:
+
+```python
+from web3 import Web3
+
+# Connect to the blockchain
+w3 = Web3(Web3.HTTPProvider('https://rpc.vana.org/'))  # Mainnet
+# or w3 = Web3(Web3.HTTPProvider('https://rpc.moksha.vana.org/'))  # Testnet
+
+# Load the contract
+contract = w3.eth.contract(address=COMPUTE_ENGINE_ADDRESS, abi=COMPUTE_ENGINE_ABI)
+
+# Cancel the job
+tx_hash = contract.functions.cancelJob(int(JOB_ID)).transact({
+    'from': w3.eth.accounts[0]
+})
+
+# Wait for the transaction to be mined
+receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+print(f"Job cancelled: {receipt}")
+```
+
+## Smart Contracts
+
+The following smart contracts are relevant for working with long-running compute jobs:
+
+| Contract | Description | Mainnet Address | Testnet Address |
+|----------|-------------|----------------|----------------|
+| ComputeEngine | Main contract for job management | [0xb2BF...47bd](https://vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy) | [0xb2BF...47bd](https://moksha.vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy) |
+| ComputeInstructionRegistry | Registry of compute instruction images | [0x5786...63A5](https://vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy) | [0x5786...63A5](https://moksha.vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy) |
+| QueryEngine | Main contract for query permissioning | [0xd25E...0490](https://vanascan.io/address/0xd25Eb66EA2452cf3238A2eC6C1FD1B7F5B320490?tab=read_write_proxy) | [0xd25E...0490](https://moksha.vanascan.io/address/0xd25Eb66EA2452cf3238A2eC6C1FD1B7F5B320490?tab=read_write_proxy) |
+
+## Customizing Query Result Processing
+
+You can customize how query results are converted into training data by modifying the data processing pipeline in your service code.
+
+The primary location to customize is in `utils/db.py`, where the `format_training_examples` method transforms raw database records into training pairs. Modify this function to match your specific data schema and training needs.
+
+## Complete Examples
+
+### Training Workflow Example
+
+This example demonstrates a complete workflow for starting and monitoring a training job:
+
+```python
+import os
+import requests
+import json
+import time
+from eth_account import Account
+from eth_account.messages import encode_defunct
+
+# Configuration
+JOB_ID = "4976"
+COMPUTE_ENGINE_URL = "http://compute-engine-url"
+PRIVATE_KEY = os.getenv("WALLET_PRIVATE_KEY")
+
+def sign_message(message, private_key):
+    account = Account.from_key(private_key)
+    message_hash = encode_defunct(text=message)
+    signed_message = account.sign_message(message_hash)
+    return signed_message.signature.hex()
+
+# Start a training job
+headers = {
+    "X-Job-ID-Signature": sign_message(JOB_ID, PRIVATE_KEY),
+    "Content-Type": "application/json"
+}
+
+train_payload = {
+    "model_name": "meta-llama/Llama-2-7b-hf",  # Base model for fine-tuning
+    "output_dir": "user_data_model",  # Your trained model name
+    "training_params": {
+        "num_epochs": 6,
+        "learning_rate": 2e-4,
+        "batch_size": 4
+    },
+    "query_params": {
+        "compute_job_id": JOB_ID,
+        "refiner_id": 1,
+        "query": """
+            SELECT 
+                u.user_id,
+                u.locale,
+                u.name,
+                u.email,
+                a.source AS auth_source
+            FROM users AS u
+            LEFT JOIN auth_sources AS a ON u.user_id = a.user_id
+        """,
+        "query_signature": sign_message("SELECT u.user_id, u.locale...", PRIVATE_KEY),
+        "params": []
+    }
+}
+
+response = requests.post(
+    f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/train/",
+    headers=headers,
+    json=train_payload
+)
+
+if response.status_code == 202:
+    result = response.json()
+    training_job_id = result['job_id']
+    print(f"Training job started: {training_job_id}")
+    
+    # Monitor training progress
+    for _ in range(10):
+        status_response = requests.get(
+            f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/train/{training_job_id}",
+            headers=headers
+        )
+        
+        if status_response.status_code == 200:
+            status = status_response.json()
+            print(f"Status: {status['status']}")
+            
+            if status['status'] in ['complete', 'error']:
+                break
+        
+        time.sleep(30)
+else:
+    print(f"Failed to start training: {response.text}")
+```
+
+### Inference Workflow Example
+
+This example shows how to use a trained model for inference:
+
+```python
+import requests
+from eth_account import Account
+from eth_account.messages import encode_defunct
+
+# Configuration
+JOB_ID = "4976"
+COMPUTE_ENGINE_URL = "http://compute-engine-url"
+PRIVATE_KEY = "your_private_key"
+
+def sign_message(message, private_key):
+    account = Account.from_key(private_key)
+    message_hash = encode_defunct(text=message)
+    signed_message = account.sign_message(message_hash)
+    return signed_message.signature.hex()
+
+# Set up headers
+headers = {
+    "X-Job-ID-Signature": sign_message(JOB_ID, PRIVATE_KEY),
+    "Content-Type": "application/json"
+}
+
+# List available models
+models_response = requests.get(
+    f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/inference/models",
+    headers=headers
+)
+
+if models_response.status_code == 200:
+    models = models_response.json()
+    print("Available models:")
+    for model in models.get('data', []):
+        print(f"  - {model.get('id')}")
+
+# Generate text
+inference_payload = {
+    "model": "user_data_model",
+    "messages": [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is the locale of user 4?"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 512,
+    "stream": False
+}
+
+inference_response = requests.post(
+    f"{COMPUTE_ENGINE_URL}/job/{JOB_ID}/proxy/inference/chat/completions",
+    headers=headers,
+    json=inference_payload
+)
+
+if inference_response.status_code == 200:
+    result = inference_response.json()
+    generated_text = result['choices'][0]['message']['content']
+    print(f"\nGenerated text:\n{generated_text}")
+    
+    # Print usage stats
+    usage = result.get('usage', {})
+    print(f"\nUsage stats:")
+    print(f"  Prompt tokens: {usage.get('prompt_tokens', 'N/A')}")
+    print(f"  Completion tokens: {usage.get('completion_tokens', 'N/A')}")
+    print(f"  Total tokens: {usage.get('total_tokens', 'N/A')}")
+else:
+    print(f"Inference failed: {inference_response.text}")
+```
+
+## API Reference
+
+### Service Job Endpoints
+
+Your service job exposes these main endpoints through the Compute Engine proxy:
+
+#### Training Endpoints
+- `POST /train/`: Start a new training job
+- `GET /train/{training_job_id}`: Get training job status
+- `GET /train/{training_job_id}/events`: Stream real-time training events (SSE)
+- `GET /train/{training_job_id}/events/history`: Get history of training events
+
+#### Inference Endpoints
+- `GET /inference/models`: List available models
+- `POST /inference/chat/completions`: Generate text using a model (OpenAI-compatible)
+
+### Compute Engine Endpoints
+
+The Compute Engine provides these endpoints for interacting with your service job:
+
+- `POST /job/{job_id}`: Submit a job
+- `GET /job/{job_id}`: Get job status and results
+- `GET /job/{job_id}/logs`: Stream container logs
+- `GET /job/{job_id}/artifacts/{artifact_id}`: Download job artifacts
+- `ANY /job/{job_id}/proxy/{path}`: Proxy requests to the service job
+
+## Deployment
+
+To deploy your service job:
+
+1. Build and export the Docker image:
+   ```bash
+   ./scripts/image-build.sh
+   ./scripts/image-export.sh
+   ```
+   
+   The export script will automatically compress the image and calculate its SHA256 hash. You'll need this hash for on-chain registration.
+   > **Note**: When using the hash for on-chain registration, you must prefix it with `0x`.
+
+2. Upload the image to a publicly accessible URL (e.g., HTTPS storage, S3, or IPFS).
+
+3. Register the Compute Instruction on-chain by calling the `addComputeInstruction` function:
+   - [Testnet addComputeInstruction](https://moksha.vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy&source_address=0x388E3b7cAD1ff4E69d70DA820b5095FdF4c98C8b#0x248e02a6)
+   - [Mainnet addComputeInstruction](https://vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy&source_address=0x388E3b7cAD1ff4E69d70DA820b5095FdF4c98C8b#0x248e02a6)
+   
+   Parameters:
+   - `url`: The publicly accessible URL where you uploaded the image
+   - `hash`: The SHA256 hash from step 1 (prefixed with `0x`)
+   
+   After the transaction is complete, check the transaction logs to retrieve the instruction ID that was created. You'll need this ID for the next step.
+
+4. Get approval from the DLP owner. The DLP owner must call the `updateComputeInstruction` function to approve your instruction for their DLP:
+   - [Testnet updateComputeInstruction](https://moksha.vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy&source_address=0x388E3b7cAD1ff4E69d70DA820b5095FdF4c98C8b#0x79fd41f6)
+   - [Mainnet updateComputeInstruction](https://vanascan.io/address/0x5786B12b4c6Ba2bFAF0e77Ed30Bf6d32805563A5?tab=read_write_proxy&source_address=0x388E3b7cAD1ff4E69d70DA820b5095FdF4c98C8b#0x79fd41f6)
+   
+   Parameters:
+   - `instructionId`: The instruction ID from step 3
+   - `dlpId`: The ID of the DLP with the data you want to access
+   - `approved`: Set to `true` to approve the instruction
+
+5. Register the job on-chain. For long-running service jobs like this, use the `submitJobWithTee` function to assign it to a dedicated instance:
+   - [Testnet submitJobWithTee](https://moksha.vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy&source_address=0x1Eb8bb29B9FFAD034b7036cFFb8FA7Be2B01182a#0xabc7728d)
+   - [Mainnet submitJobWithTee](https://vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy&source_address=0x1Eb8bb29B9FFAD034b7036cFFb8FA7Be2B01182a#0xabc7728d)
+   
+   Parameters:
+   - `maxTimeout`: Timeout in seconds. For long-running services, use `1208925819614629174706175` (maximum value)
+   - `gpuRequired`: True / false to specify whether the compute job needs GPU access or not.
+   - `computeInstructionId`: The instruction ID from step 3
+   - `teeAddress`: The address of the TEE you want to use
+   
+   > **Note**: Each TEE has a configured amount of GPUs that may be assignable to jobs. Once these are exhausted, new job submissions will fail.
+   
+   Alternatively, for shorter jobs that don't need a dedicated TEE, you can use the `submitJob` function:
+   - [Testnet submitJob](https://moksha.vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy&source_address=0x1Eb8bb29B9FFAD034b7036cFFb8FA7Be2B01182a#0xe158711b)
+   - [Mainnet submitJob](https://vanascan.io/address/0xb2BFe33FA420c45F1Cf1287542ad81ae935447bd?tab=read_write_proxy)
+   
+   After submitting the job, check the transaction logs to retrieve the job ID. You'll need this ID for the next step. You can query the job info with the `jobs` function to see which TEE pool contract and TEE address it was assigned to.
+
+6. Submit the job through the Compute Engine API. You must submit the job to the same TEE that was assigned in step 5
+   
+   > **Important**: If you submit the job to a different TEE than the one it was assigned to in step 5, the submission will be rejected.

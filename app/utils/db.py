@@ -1,8 +1,9 @@
 import sqlite3
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Generator
 import json
 import logging
+from contextlib import contextmanager
 
 from config import WORKING_DIR, settings
 
@@ -10,19 +11,35 @@ from config import WORKING_DIR, settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_connection(db_path: Path):
-    """Get a connection to the SQLite database."""
+@contextmanager
+def get_connection(db_path: Path) -> Generator[sqlite3.Connection, None, None]:
+    """
+    Get a connection to the SQLite database using the context manager protocol.
+    
+    Args:
+        db_path: Path to the SQLite database file
+        
+    Returns:
+        A context-managed SQLite connection
+        
+    Raises:
+        FileNotFoundError: If the database file doesn't exist
+    """
     if not db_path.exists():
         raise FileNotFoundError(f"Database file not found at {db_path}")
     
-    return sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 def execute_query(query_id: str, query: str, params: List[Any] = None) -> List[Tuple]:
     """
     Execute a query against the database.
     
     Args:
-        query_id: DB ID to execute query against
+        query_id: Query results DB ID to execute query against
         query: SQL query to execute
         params: Parameters for the query
         
@@ -31,17 +48,16 @@ def execute_query(query_id: str, query: str, params: List[Any] = None) -> List[T
     """
     db_path = WORKING_DIR / f"{query_id}.db"
     try:
-        conn = get_connection(db_path)
-        cursor = conn.cursor()
-        
-        if params:
-            cursor.execute(query, params)
-        else:
-            cursor.execute(query)
-        
-        results = cursor.fetchall()
-        conn.close()
-        return results
+        with get_connection(db_path) as conn:
+            cursor = conn.cursor()
+            
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            
+            results = cursor.fetchall()
+            return results
     
     except Exception as e:
         logger.error(f"Error executing query: {e}")
@@ -59,33 +75,31 @@ def get_training_data(query_id: str) -> List[Dict[str, Any]]:
     """
     db_path = WORKING_DIR / f"{query_id}.db"
     try:
-        conn = get_connection(db_path)
-        cursor = conn.cursor()
-        
-        logger.info(f"Retrieving training data from DB: {query_id}")
-        
-        # Get the schema of the results table
-        cursor.execute("PRAGMA table_info(results)")
-        columns = [col[1] for col in cursor.fetchall()]
-        
-        # Query all data from the results table
-        cursor.execute("SELECT * FROM results")
-        rows = cursor.fetchall()
-        
-        # Convert rows to list of dictionaries
-        data = []
-        for row in rows:
-            item = {}
-            for i, col in enumerate(columns):
-                item[col] = row[i]
-            data.append(item)
-        
-        conn.close()
-        
-        # Log the number of examples found
-        logger.info(f"Found {len(data)} examples in the database")
-        
-        return data
+        with get_connection(db_path) as conn:
+            cursor = conn.cursor()
+            
+            logger.info(f"Retrieving training data from DB: {query_id}")
+            
+            # Get the schema of the results table
+            cursor.execute("PRAGMA table_info(results)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            # Query all data from the results table
+            cursor.execute("SELECT * FROM results")
+            rows = cursor.fetchall()
+            
+            # Convert rows to list of dictionaries
+            data = []
+            for row in rows:
+                item = {}
+                for i, col in enumerate(columns):
+                    item[col] = row[i]
+                data.append(item)
+            
+            # Log the number of examples found
+            logger.info(f"Found {len(data)} examples in the database")
+            
+            return data
     
     except Exception as e:
         logger.error(f"Error getting training data: {e}")
@@ -158,7 +172,7 @@ def format_training_examples(data: List[Dict[str, Any]]) -> List[Dict[str, str]]
     logger.info(f"Formatted {len(examples)} training examples")
     return examples
 
-def save_training_status(job_id: str, status: Dict[str, Any]):
+def save_training_status(job_id: str, status: Dict[str, Any]) -> None:
     """
     Save the training status to a JSON file.
     
