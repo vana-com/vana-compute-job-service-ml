@@ -71,7 +71,7 @@ class TrainingService:
         self.settings = settings or global_settings
         self.query_client = query_client or QueryEngineClient()
     
-    def start_training_job(
+    async def start_training_job(
         self, 
         request: TrainingRequest,
         background_tasks: BackgroundTasks
@@ -115,7 +115,7 @@ class TrainingService:
                 logger.info(f"Using existing query ID: {query_id}")
             else:
                 logger.info("No query ID provided, executing new query")
-                query_id = self.execute_new_query(request)
+                query_id = await self.execute_new_query(request)
                 logger.info(f"Query executed successfully, query ID: {query_id}")
             
             # Start the actual training in background

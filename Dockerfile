@@ -33,6 +33,7 @@ RUN mkdir -p /mnt/output /mnt/working
 ENV OUTPUT_PATH=/mnt/output
 ENV WORKING_PATH=/mnt/working
 ENV PORT=8000
+ENV PYTHONPATH=/
 
 # Expose the port
 EXPOSE 8000
