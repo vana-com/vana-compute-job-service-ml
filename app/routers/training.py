@@ -10,6 +10,7 @@ from app.models.training import (
 )
 from app.utils.events import get_training_events
 from app.services import TrainingService
+from app.services.training import generate_sse_events
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,7 +44,7 @@ async def train(
     Raises:
         HTTPException: If validation fails or training can't be started
     """
-    return training_service.start_training_job(request, background_tasks)
+    return await training_service.start_training_job(request, background_tasks)
 
 
 @router.get("/{training_job_id}", response_model=TrainingStatus)
@@ -95,7 +96,7 @@ async def stream_training_events(training_job_id: str, request: Request) -> Stre
         )
     
     return StreamingResponse(
-        training_service.generate_sse_events(training_job_id, request),
+        generate_sse_events(training_job_id, request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -129,5 +130,5 @@ async def get_training_event_history(training_job_id: str) -> List[TrainingEvent
             detail=f"Training job {training_job_id} not found"
         )
     
-    events = await get_training_events(training_job_id)
-    return [TrainingEvent(**event) for event in events]
+    events = await training_service.get_training_events(training_job_id)
+    return events

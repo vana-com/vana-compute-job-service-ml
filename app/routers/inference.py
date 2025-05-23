@@ -38,7 +38,7 @@ async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompleti
             # For streaming, return a streaming response
             logger.info(f"Streaming chat completion for model {request.model}")
             return StreamingResponse(
-                await generate_chat_completion(
+                generate_chat_completion(
                     model_path=model_path,
                     messages=request.messages,
                     temperature=request.temperature,
