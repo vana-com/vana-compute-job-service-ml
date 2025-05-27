@@ -3,7 +3,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import training, inference, health
+from app.routers import training, inference, health
 
 app = FastAPI(
     title="Vana Inference Engine",

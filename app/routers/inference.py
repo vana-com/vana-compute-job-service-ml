@@ -5,7 +5,7 @@ import logging
 from app.ml.inference import generate_chat_completion
 from app.models.openai import ChatCompletionRequest, ChatCompletionResponse
 from app.models.inference import ModelListResponse, ModelData
-from app.services import InferenceService
+from app.services.inference import InferenceService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
