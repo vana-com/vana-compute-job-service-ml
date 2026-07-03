@@ -1,6 +1,6 @@
 # Vana ML Service Compute Job Template (Training & Inference)
 
-[![Join our Discord](https://img.shields.io/badge/Discord-Join%20Community-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://t.co/VkqwlJZ4ph)
+[![Join our Discord](https://img.shields.io/badge/Discord-Join%20Community-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/vanaofficial)
 [![Documentation](https://img.shields.io/badge/Docs-Read%20More-0088CC?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.vana.org/docs/home)
 [![Website](https://img.shields.io/badge/Website-Visit%20Us-00ADEF?style=for-the-badge&logo=internetexplorer&logoColor=white)](https://www.vana.org/)
 [![X (Twitter)](https://img.shields.io/badge/Twitter-Follow%20Us-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/vana)
